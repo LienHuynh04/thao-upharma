@@ -501,18 +501,18 @@ export class ReportGeneratorService {
       const emps = employeePlansMap[shop.ShopCode] || [];
 
       // Prioritize ShopPlan (sp) data as primary source of truth for store KPIs
-      const salesActual = Number(sp.AmountR) || emps.reduce((sum, e) => sum + (Number(e.AmountR) || 0), 0);
-      const salesTarget = Number(sp.Amount) || emps.reduce((sum, e) => sum + (Number(e.Amount) || 0), 0) || 1;
+      const salesActual = (Number(sp.AmountR) || emps.reduce((sum, e) => sum + (Number(e.AmountR) || 0), 0)) * 1000;
+      const salesTarget = (Number(sp.Amount) || emps.reduce((sum, e) => sum + (Number(e.Amount) || 0), 0) || 1) * 1000;
 
-      const hhsActual = Number(sp.PointSales01R) || emps.reduce((sum, e) => sum + (Number(e.PointRatioR) || 0), 0);
-      const hhsTarget = Number(sp.PointSales01) || emps.reduce((sum, e) => sum + (Number(e.PointRatio) || 0), 0) || 1;
+      const hhsActual = (Number(sp.PointSales01R) || emps.reduce((sum, e) => sum + (Number(e.PointRatioR) || 0), 0)) * 1000;
+      const hhsTarget = (Number(sp.PointSales01) || emps.reduce((sum, e) => sum + (Number(e.PointRatio) || 0), 0) || 1) * 1000;
 
       const salesPercent = Math.round((salesActual / salesTarget) * 100);
       const hhsPercent = Math.round((hhsActual / hhsTarget) * 100);
 
       const salesProjected = completedDays > 0 ? Math.round((salesActual / completedDays) * totalDays) : salesActual;
       const hhsProjected = completedDays > 0 ? Math.round((hhsActual / completedDays) * totalDays) : hhsActual;
-      const hhsRatio = salesActual > 0 ? Math.round(((hhsActual * 1000) / salesActual) * 100) : 0;
+      const hhsRatio = salesActual > 0 ? Math.round((hhsActual / salesActual) * 100) : 0;
 
       const rawTime = sp.TimeModify || sp.TimeCreate || "";
       const lastUpdated = rawTime

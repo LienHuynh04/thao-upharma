@@ -27,6 +27,91 @@ const routes: Routes = [
         title: "UPHARMA - Bảng điều khiển",
       },
       {
+        path: "nha-thuoc",
+        loadComponent: () => import("./app/nha-thuoc/nha-thuoc.component").then((m) => m.NhaThuocComponent),
+        title: "UPHARMA - Nhà Thuốc",
+      },
+      {
+        path: "nhan-su",
+        loadComponent: () => import("./app/nhan-su/nhan-su.component").then((m) => m.NhanSuComponent),
+        title: "UPHARMA - Nhân Sự",
+      },
+      {
+        path: "okr",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.OkrComponent),
+        title: "UPHARMA - OKR",
+      },
+      {
+        path: "khuyen-mai",
+        loadComponent: () => import("./app/khuyen-mai/khuyen-mai.component").then((m) => m.KhuyenMaiComponent),
+        title: "UPHARMA - Khuyến Mãi",
+      },
+      {
+        path: "bao-cao-nv",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.BaoCaoNvComponent),
+        title: "UPHARMA - Báo Cáo NV",
+      },
+      {
+        path: "bao-cao",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.BaoCaoComponent),
+        title: "UPHARMA - Báo Cáo",
+      },
+      {
+        path: "chi-tieu",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.ChiTieuComponent),
+        title: "UPHARMA - Chỉ Tiêu",
+      },
+      {
+        path: "hieu-suat",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.HieuSuatComponent),
+        title: "UPHARMA - Hiệu Suất",
+      },
+      {
+        path: "khach-hang",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.KhachHangComponent),
+        title: "UPHARMA - Khách Hàng",
+      },
+      {
+        path: "nhap-doanh-so",
+        loadComponent: () => import("./app/nhap-doanh-so/nhap-doanh-so.component").then((m) => m.NhapDoanhSoComponent),
+        title: "UPHARMA - Nhập Doanh Số",
+      },
+      {
+        path: "hang-hoa",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.HangHoaComponent),
+        title: "UPHARMA - Hàng Hoá",
+      },
+      {
+        path: "wrong-fefo",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.WrongFefoComponent),
+        title: "UPHARMA - Wrong FEFO",
+      },
+      {
+        path: "hang-khong-co",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.HangKhongCoComponent),
+        title: "UPHARMA - Hàng Không Có",
+      },
+      {
+        path: "danh-gia-ai",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.DanhGiaAiComponent),
+        title: "UPHARMA - Đánh Giá AI",
+      },
+      {
+        path: "cham-kpi",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.ChamKpiComponent),
+        title: "UPHARMA - Chấm KPI",
+      },
+      {
+        path: "cong-viec-thong-minh",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.CongViecThongMinhComponent),
+        title: "UPHARMA - Công Việc Thông Minh",
+      },
+      {
+        path: "check",
+        loadComponent: () => import("./app/placeholder-pages/placeholder-pages.component").then((m) => m.CheckComponent),
+        title: "UPHARMA - Check",
+      },
+      {
         path: "xuat-bao-cao",
         loadComponent: () => import("./app/report-config/report-config.component").then((m) => m.ReportConfigComponent),
         title: "UPHARMA - Báo cáo vận hành",

@@ -9,11 +9,12 @@ import {
   RouterOutlet,
 } from "@angular/router";
 import { UpharmaService } from "../upharma.service";
+import { SidebarComponent } from "../shared/components/sidebar/sidebar.component";
 
 @Component({
   selector: "app-layout",
   standalone: true,
-  imports: [CommonModule, RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [CommonModule, RouterOutlet, SidebarComponent],
   templateUrl: "./layout.component.html",
 })
 export class LayoutComponent implements OnInit, OnDestroy {
@@ -23,6 +24,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
     "layout-top": false,
   };
   layoutMode: "left" | "top" = "left";
+  isSidebarCollapsed = false;
+
+  toggleSidebarCollapse() {
+    this.isSidebarCollapsed = !this.isSidebarCollapsed;
+  }
   menuGroups: Record<string, boolean> = {
     profile: false,
     goods: false,
@@ -810,20 +816,40 @@ renderDashboard(); renderInventory(); renderNearExpiryOrders(); renderTabs(); re
 
   showLogoutConfirm = false;
 
+  currentPageTitle = 'Tổng Quan';
+
   ngOnInit() {
-    const savedDarkMode = localStorage.getItem("upharma_dark_mode");
-    this.darkMode = savedDarkMode === null ? true : savedDarkMode === "true";
-    if (savedDarkMode === null) {
-      localStorage.setItem("upharma_dark_mode", "true");
-    }
-    this.applyDarkMode();
     this.checkSession();
     this.syncMenuState(this.router.url);
+    this.updatePageTitle(this.router.url);
     this.routerSub = this.router.events.subscribe((event) => {
       if (event instanceof NavigationEnd) {
-        this.syncMenuState(event.urlAfterRedirects || event.url);
+        const currentUrl = event.urlAfterRedirects || event.url;
+        this.syncMenuState(currentUrl);
+        this.updatePageTitle(currentUrl);
       }
     });
+  }
+
+  private updatePageTitle(url: string) {
+    if (url.includes('/nha-thuoc')) this.currentPageTitle = 'Nhà Thuốc';
+    else if (url.includes('/nhan-su')) this.currentPageTitle = 'Nhân Sự';
+    else if (url.includes('/khuyen-mai')) this.currentPageTitle = 'Khuyến Mãi';
+    else if (url.includes('/nhap-doanh-so')) this.currentPageTitle = 'Nhập Doanh Số';
+    else if (url.includes('/okr')) this.currentPageTitle = 'OKR';
+    else if (url.includes('/bao-cao-nv')) this.currentPageTitle = 'Báo Cáo NV';
+    else if (url.includes('/bao-cao')) this.currentPageTitle = 'Báo Cáo';
+    else if (url.includes('/chi-tieu')) this.currentPageTitle = 'Chỉ Tiêu';
+    else if (url.includes('/hieu-suat')) this.currentPageTitle = 'Hiệu Suất';
+    else if (url.includes('/khach-hang')) this.currentPageTitle = 'Khách Hàng';
+    else if (url.includes('/hang-hoa')) this.currentPageTitle = 'Hàng Hoá';
+    else if (url.includes('/wrong-fefo')) this.currentPageTitle = 'Wrong FEFO';
+    else if (url.includes('/hang-khong-co')) this.currentPageTitle = 'Hàng Không Có';
+    else if (url.includes('/danh-gia-ai')) this.currentPageTitle = 'Đánh Giá AI';
+    else if (url.includes('/cham-kpi')) this.currentPageTitle = 'Chấm KPI';
+    else if (url.includes('/cong-viec-thong-minh')) this.currentPageTitle = 'Công Việc Thông Minh';
+    else if (url.includes('/check')) this.currentPageTitle = 'Check';
+    else this.currentPageTitle = 'Tổng Quan';
   }
 
   ngOnDestroy(): void {

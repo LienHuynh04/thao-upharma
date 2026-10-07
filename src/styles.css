@@ -11,42 +11,37 @@
    Override Tabler defaults and build UPharma style tokens
    ──────────────────────────────────────────────────────────────── */
 :root {
-  --tblr-primary: #c98c1f;
-  --tblr-primary-rgb: 201, 140, 31;
+  --tblr-primary: #0d472b;
+  --tblr-primary-rgb: 13, 71, 43;
   --tblr-font-sans-serif: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color-scheme: light !important;
   
-  /* Semantic tokens - Light Theme */
-  --upharma-bg: #f6f8fb;
+  /* Semantic tokens - Always Light Theme */
+  --upharma-bg: #f8fafc;
   --upharma-surface: #ffffff;
   --upharma-card: #ffffff;
-  --upharma-border: #e6e8eb;
-  --upharma-text: #1e293b;
-  --upharma-muted-text: #64748b;
-  --upharma-brand-brown: #6d3c15;
+  --upharma-border: #e2e8f0;
+  --upharma-text: #1f2937;
+  --upharma-muted-text: #6b7280;
+  --upharma-brand-brown: #0d472b;
+
+  --tblr-body-bg: #f8fafc !important;
+  --tblr-bg-surface: #ffffff !important;
+  --tblr-body-color: #1f2937 !important;
+  --tblr-card-bg: #ffffff !important;
 }
 
-[data-bs-theme="dark"] {
-  /* Semantic tokens - Dark Theme */
-  --tblr-body-bg: #0b1324;
-  --tblr-bg-surface: #15223c;
-  --tblr-border-color: rgba(255, 255, 255, 0.08);
-  --tblr-border-color-translucent: rgba(255, 255, 255, 0.06);
-  --tblr-body-color: #f4f6fa;
-  --tblr-secondary-color: #94a3b8;
-  --tblr-card-bg: #15223c;
-  --tblr-card-border-color: rgba(255, 255, 255, 0.08);
-  
-  --upharma-bg: #0b1324;
-  --upharma-surface: #15223c;
-  --upharma-card: #15223c;
-  --upharma-border: rgba(255, 255, 255, 0.08);
-  --upharma-text: #f4f6fa;
-  --upharma-muted-text: #94a3b8;
-  --upharma-brand-brown: #c98c1f;
+/* Always force Light Mode across all components and pages */
+html, body, [data-bs-theme="dark"], [data-bs-theme="light"] {
+  color-scheme: light !important;
+  background-color: #f8fafc !important;
+  color: #1f2937 !important;
 }
 
 body {
   font-family: var(--tblr-font-sans-serif);
+  background-color: #f8fafc !important;
+  color: #1f2937 !important;
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -278,7 +273,7 @@ header.navbar .btn-ghost-light:focus,
   border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
 }
 
-/* Custom scrollbar for table-responsive */
+/* Custom scrollbar & UI/UX styling for table-responsive */
 .table-responsive {
   display: block;
   width: 100%;
@@ -286,13 +281,59 @@ header.navbar .btn-ghost-light:focus,
   -webkit-overflow-scrolling: touch;
 }
 .table-responsive > .table {
-  width: 100% !important;
+  width: max-content;
   min-width: 100%;
 }
+.table-responsive > table {
+  width: max-content;
+  min-width: 100%;
+}
+
+@media (max-width: 991.98px) {
+  .table-responsive > .table {
+    min-width: 750px;
+  }
+}
+
+.table th,
+.table td,
 .table-responsive > .table th,
 .table-responsive > .table td {
-  white-space: normal;
-  word-break: break-word;
+  white-space: nowrap !important;
+  word-break: normal !important;
+  vertical-align: middle;
+}
+.table th.address-col,
+.table td.address-col,
+.table-responsive > .table th.address-col,
+.table-responsive > .table td.address-col,
+.table th.wrap-col,
+.table td.wrap-col,
+.table-responsive > .table th.wrap-col,
+.table-responsive > .table td.wrap-col {
+  white-space: normal !important;
+  word-break: break-word !important;
+}
+.table th,
+.table-responsive > .table th {
+  background-color: #f8fafc !important;
+  color: #475569 !important;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.75rem 0.85rem;
+  border-bottom: 2px solid #e2e8f0 !important;
+}
+.table td,
+.table-responsive > .table td {
+  padding: 0.75rem 0.85rem;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.85rem;
+}
+.table tbody tr:hover,
+.table-responsive > .table tbody tr:hover {
+  background-color: #f8fafc !important;
 }
 .table-responsive::-webkit-scrollbar {
   height: 6px;
@@ -749,8 +790,11 @@ body.modal-open {
 
 .table-responsive > table > thead > tr > th,
 .table-responsive > .table > thead > tr > th {
-  background-color: var(--tblr-bg-surface);
-  box-shadow: inset 0 -1px 0 var(--tblr-border-color);
+  background-color: #f8fafc !important;
+  color: #475569 !important;
+  white-space: nowrap !important;
+  word-break: normal !important;
+  box-shadow: inset 0 -1px 0 #e2e8f0;
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -1311,6 +1355,5 @@ header.navbar .dropdown-item {
   height: 8px !important;
   border-radius: 50rem !important;
 }
-
 
 

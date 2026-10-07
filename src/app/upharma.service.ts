@@ -42,44 +42,51 @@ export interface ResourceResponse {
 }
 
 export interface ShopPlanApiItem {
-  RowID: number;
+  RowID?: number;
   ShopCode: string;
-  Month: string;
-  TimeCreate: string;
-  TimeModify: string;
-  TimeApprove: string;
-  ApproveID: number;
+  Month?: string | number;
+  Year?: number;
+  TimeMonth?: number;
+  TimeYear?: number;
+  TimeStart?: string;
+  TimeCreate?: string;
+  TimeModify?: string;
+  TimeApprove?: string;
+  ApproveID?: number;
   ApproveName?: string;
-  Amount: number;
-  PointSales01: number;
-  QuaCustomer: number;
-  QuaCustomerNew: number;
-  QuaCustomerOld: number;
-  QuaInvoice: number;
-  SKU: number;
-  RatioSlowSales: number;
-  AmountR: number;
-  PointSales01R: number;
-  QuaCustomerR: number;
-  QuaCustomerNewR: number;
-  QuaCustomerOldR: number;
-  QuaInvoiceR: number;
-  SKUR: number;
-  RatioSlowSalesR: number;
-  QuantityHHS: number;
-  Status: number;
-  CusLevel1: number;
-  CusLevel2: number;
-  CusLevel3: number;
-  CusLevel4: number;
-  CusLevel5: number;
-  CusLevel6: number;
-  CusLevel1R: number;
-  CusLevel2R: number;
-  CusLevel3R: number;
-  CusLevel4R: number;
-  CusLevel5R: number;
-  CusLevel6R: number;
+  Amount?: number;
+  AmountR?: number;
+  PointSales01?: number;
+  PointSales01R?: number;
+  PointRatioR?: number;
+  QuantityHHS?: number;
+  QuaCustomer?: number;
+  QuaCustomerNew?: number;
+  QuaCustomerOld?: number;
+  QuaInvoice?: number;
+  SKU?: number;
+  RatioSlowSales?: number;
+  QuaCustomerR?: number;
+  QuaCustomerNewR?: number;
+  QuaCustomerOldR?: number;
+  QuaInvoiceR?: number;
+  SKUR?: number;
+  RatioSlowSalesR?: number;
+  Status?: number;
+  ApproveStatus?: number;
+  ApproveStatusShop?: number;
+  CusLevel1?: number;
+  CusLevel2?: number;
+  CusLevel3?: number;
+  CusLevel4?: number;
+  CusLevel5?: number;
+  CusLevel6?: number;
+  CusLevel1R?: number;
+  CusLevel2R?: number;
+  CusLevel3R?: number;
+  CusLevel4R?: number;
+  CusLevel5R?: number;
+  CusLevel6R?: number;
 }
 
 export interface ShopPlanApiResponse {
@@ -1038,11 +1045,18 @@ export class UpharmaService {
     try {
       data = responseText ? (JSON.parse(responseText) as RawRecord) : {};
     } catch {
-      throw new Error(`${pathname}: response không phải JSON`);
+      if (response.ok) {
+        throw new Error(`${pathname}: response không phải JSON`);
+      }
+      data = { message: responseText.trim().slice(0, 200) };
     }
 
     if (!response.ok) {
-      throw new Error(`${pathname}: HTTP ${response.status}`);
+      if (response.status === 401 || this.isTokenErrorMessage(data)) {
+        this.handleInvalidToken();
+      }
+      const detail = String(data["message"] || data["RespText"] || "").trim();
+      throw new Error(`${pathname}: HTTP ${response.status}${detail ? ` — ${detail}` : ""}`);
     }
 
     this.assertBusinessResponse(pathname, data);
@@ -1114,7 +1128,7 @@ export class UpharmaService {
     }
 
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403 || this.isTokenErrorMessage(data)) {
+      if (response.status === 401 || this.isTokenErrorMessage(data)) {
         this.handleInvalidToken();
       }
       throw new Error(String(data["message"] || data["RespText"] || `${pathname}: HTTP ${response.status}`));

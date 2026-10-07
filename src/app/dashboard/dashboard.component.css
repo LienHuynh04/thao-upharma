@@ -1,0 +1,17 @@
+.chart-wrap {
+  display: block;
+  position: relative;
+  height: 350px;
+}
+
+.chart-wrap canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+@media (max-width: 576px) {
+  .chart-wrap {
+    height: 260px;
+  }
+}

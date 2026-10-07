@@ -1,0 +1,192 @@
+<div class="page-header d-print-none">
+  <div class="container-xl">
+    <div class="row g-2 align-items-center">
+      <div class="col">
+        <div class="page-pretitle">HÀNG HÓA</div>
+        <h2 class="page-title">Hàng đã hết</h2>
+        <div class="text-secondary mt-1">
+          Xem các sản phẩm đã hết trong 3 tháng gần nhất, bấm vào shop nào thì dữ liệu của shop đó sẽ được tải và giữ lại trên trang.
+        </div>
+      </div>
+      <div class="col-auto ms-auto d-print-none">
+        <div class="btn-list">
+          <button type="button" class="btn btn-outline-success" (click)="exportExcel()" [disabled]="loading || outStockRefreshing || rows.length === 0">
+            <i class="ti ti-file-spreadsheet me-1"></i>Xuất Excel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+  <div class="container-xl">
+
+    <!-- Shop Tabs Selection -->
+    <div class="card mb-3" *ngIf="tabs.length > 0">
+      <div class="card-header p-0">
+        <ul class="nav nav-tabs card-header-tabs nav-fill w-100 m-0">
+          <li class="nav-item" *ngFor="let tab of tabs; trackBy: trackByShop">
+            <a
+              href="javascript:void(0)"
+              class="nav-link py-3"
+              [class.active]="tab.shopCode === activeShopCode"
+              (click)="setActiveShop(tab.shopCode)"
+            >
+              <i class="ti ti-building-store me-2" style="font-size: 1.15rem;"></i>
+              <strong>{{ tab.shopCode }}</strong>
+              <span class="badge bg-primary-lt ms-2" [attr.title]="tab.shopName">{{ tab.loading ? "..." : tab.loaded ? tab.count : "Chưa tải" }}</span>
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" [class.filters-collapsed]="filtersCollapsed">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <div class="d-flex align-items-center flex-wrap gap-2">
+          <ng-container *ngIf="!showHiddenMode">
+            <span class="badge bg-blue-lt" *ngIf="hasActiveShopLoaded" style="font-size: 0.9rem; padding: 6px 12px;">Tổng: {{ shopTotalCount }}</span>
+            <span class="badge bg-success-lt" *ngIf="hasActiveShopLoaded" style="font-size: 0.9rem; padding: 6px 12px;">Đã dự trù: {{ plannedCount }}</span>
+            <span class="badge bg-warning-lt" *ngIf="hasActiveShopLoaded" style="font-size: 0.9rem; padding: 6px 12px;">Chưa dự trù: {{ unplannedCount }}</span>
+            <span class="badge bg-warning-lt text-warning" *ngIf="hasActiveShopLoaded" style="font-size: 0.9rem; padding: 6px 12px; border: 1px solid rgba(245, 158, 11, 0.4);">
+              <span class="me-1">★</span>{{ starProductsCount }}
+            </span>
+          </ng-container>
+          <ng-container *ngIf="showHiddenMode">
+            <span class="badge bg-secondary-lt" *ngIf="hasActiveShopLoaded" style="font-size: 0.9rem; padding: 6px 12px;">Đang ẩn: {{ hiddenProductCodes.size }} sản phẩm</span>
+          </ng-container>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <button type="button" class="btn btn-sm" [class.btn-outline-warning]="!showOnlyStarProducts" [class.btn-yellow]="showOnlyStarProducts" (click)="toggleShowOnlyStarProducts()" *ngIf="hasActiveShopLoaded && !showHiddenMode">
+            <span class="me-1" *ngIf="!showOnlyStarProducts">★</span>
+            {{ showOnlyStarProducts ? 'Tất cả sản phẩm' : 'Chỉ xem hàng thường trực' }}
+          </button>
+          <button type="button" class="btn btn-sm" [class.btn-outline-secondary]="!showHiddenMode" [class.btn-yellow]="showHiddenMode" (click)="toggleShowHiddenMode()" *ngIf="hasActiveShopLoaded">
+            <i class="ti me-1" [class.ti-eye-off]="!showHiddenMode" [class.ti-eye]="showHiddenMode"></i>
+            {{ showHiddenMode ? 'Quay lại danh sách' : 'Danh sách ẩn (' + hiddenProductCodes.size + ')' }}
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 75vh; overflow-y: auto;" (scroll)="onTableScroll($event)">
+          <table class="table table-vcenter card-table table-striped table-hover" style="table-layout: fixed; width: 100%;">
+          <thead>
+            <tr>
+              <th style="width: 50px;">STT</th>
+              <th style="width: 50%;">Tên SP</th>
+              <th style="width: 18%;">Mã SP</th>
+              <th style="width: 17%;">Trạng thái</th>
+              <th style="width: 15%;">Hành động</th>
+            </tr>
+            <tr class="column-filter-row" id="outStockColumnFilters" style="background-color: var(--upharma-bg);">
+              <th></th>
+              <th>
+                <input class="form-control form-control-sm" [(ngModel)]="textFilters.productName" (ngModelChange)="onFilterChange()" type="search" aria-label="Lọc tên sản phẩm" placeholder="Tên SP" />
+              </th>
+              <th>
+                <input class="form-control form-control-sm" [(ngModel)]="textFilters.productCode" (ngModelChange)="onFilterChange()" type="search" aria-label="Lọc mã sản phẩm" placeholder="Mã SP" />
+              </th>
+              <th>
+                <select class="form-select form-select-sm" [(ngModel)]="textFilters.status" (ngModelChange)="onFilterChange()" aria-label="Lọc trạng thái">
+                  <option value="">Tất cả</option>
+                  <option value="Đã dự trù">Đã dự trù</option>
+                  <option value="Chưa dự trù">Chưa dự trù</option>
+                </select>
+              </th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngIf="!loading && !hasActiveShopLoaded && outStockRefreshing">
+              <td colspan="5" class="text-center text-secondary py-4">
+                Đang tải dữ liệu cho {{ activeShopCode }}. Chị vẫn có thể đổi shop trong lúc chờ.
+              </td>
+            </tr>
+            <tr *ngIf="!loading && !hasActiveShopLoaded && !outStockRefreshing">
+              <td colspan="5" class="text-center text-secondary py-4">
+                Chọn một nhà thuốc ở phía trên để xem danh sách hàng đã hết của nhà thuốc đó.
+              </td>
+            </tr>
+            <tr *ngIf="!loading && hasActiveShopLoaded && filteredRows.length === 0">
+              <td colspan="5" class="text-center text-secondary py-4">
+                Chưa có dữ liệu từ API tốc độ tiêu thụ cho shop này.
+              </td>
+            </tr>
+            <tr
+              *ngFor="let item of displayedRows; let index = index; trackBy: trackByRow"
+              [class.is-zero-stock]="item.zeroStock"
+              [class.is-collapsed]="!item.expanded"
+            >
+              <td data-label="STT">{{ index + 1 }}</td>
+              <td class="product-cell" data-label="Tên SP" style="white-space: normal !important;">
+                <span class="desktop-product-name" style="display: block; white-space: normal !important; word-wrap: break-word;">
+                  {{ item.productName }}
+                  <span *ngIf="isStarProduct(item.productCode, item.shopCode)" class="badge bg-warning-lt text-warning ms-1" title="Hàng thường trực" style="font-size: 0.7rem; padding: 2px 5px; vertical-align: middle;">★</span>
+                </span>
+                <button
+                  class="record-toggle"
+                  type="button"
+                  [attr.aria-expanded]="item.expanded"
+                  [attr.aria-label]="(item.expanded ? 'Thu gọn' : 'Mở') + ' chi tiết ' + item.productName"
+                  (click)="toggleRecord(item)"
+                >
+                  <span class="record-toggle-index">{{ index + 1 }}</span>
+                  <span class="record-toggle-copy">
+                    <strong>
+                      {{ item.productName }}
+                      <span *ngIf="isStarProduct(item.productCode, item.shopCode)" class="badge bg-warning-lt text-warning ms-1" title="Hàng thường trực" style="font-size: 0.65rem; padding: 1px 4px; vertical-align: middle;">★</span>
+                    </strong>
+                    <small>Mã: {{ item.productCode }} <span class="mx-1">•</span> <span [class.text-success]="item.status === 'Đã dự trù'" [class.text-danger]="item.status !== 'Đã dự trù'" style="font-weight: 700;">{{ item.status === 'Đã dự trù' ? 'Đã dự trù' : 'Chưa dự trù' }}</span></small>
+                  </span>
+                  <span class="record-toggle-icon" aria-hidden="true">⌄</span>
+                </button>
+              </td>
+              <td data-label="Mã SP">
+                <code>{{ item.productCode }}</code>
+              </td>
+              <td data-label="Trạng thái">
+                <span *ngIf="item.status === 'Đã dự trù'" class="status-chip status-chip--planned">
+                  Đã dự trù
+                </span>
+                <span *ngIf="item.status !== 'Đã dự trù'" class="status-chip status-chip--unplanned">
+                  Chưa dự trù
+                </span>
+              </td>
+              <td data-label="Hành động">
+                <button *ngIf="!showHiddenMode" type="button" class="btn btn-sm btn-outline-secondary" (click)="hideProduct(item, $event)" title="Ẩn sản phẩm này">
+                  <i class="ti ti-eye-off me-1"></i>Ẩn
+                </button>
+                <button *ngIf="showHiddenMode" type="button" class="btn btn-sm btn-outline-success" (click)="unhideProduct(item, $event)" title="Bỏ ẩn sản phẩm này">
+                  <i class="ti ti-eye me-1"></i>Bỏ ẩn
+                </button>
+              </td>
+            </tr>
+          </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+<!-- Toast thông báo thành công -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3 d-print-none" style="z-index: 1100;">
+  <div class="toast align-items-center text-white bg-success border-0 show" role="alert" aria-live="assertive" aria-atomic="true" *ngIf="successMessage">
+    <div class="d-flex">
+      <div class="toast-body">
+        <i class="ti ti-check me-2"></i> {{ successMessage }}
+      </div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" (click)="successMessage = ''" aria-label="Close"></button>
+    </div>
+  </div>
+</div>
+
+<div class="loading-overlay" [class.is-visible]="loading" aria-live="polite">
+  <div class="loading-box">
+    <span class="loader" aria-hidden="true"></span>
+    <strong>Đang lấy dữ liệu hàng hết kho...</strong>
+    <div class="loading-progress" aria-hidden="true">
+      <i [style.width.%]="loadingProgress"></i>
+    </div>
+    <span class="loading-progress-percent">{{ loadingProgress }}%</span>
+  </div>
+</div>

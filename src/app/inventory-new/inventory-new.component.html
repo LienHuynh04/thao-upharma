@@ -1,0 +1,196 @@
+<div class="page-header d-print-none">
+  <div class="container-xl">
+    <div class="row g-2 align-items-center">
+      <div class="col">
+        <div class="page-pretitle">QUẢN LÝ TỒN KHO</div>
+        <h2 class="page-title">Tồn kho chi tiết</h2>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+  <div class="container-xl">
+    <div class="row row-deck row-cards mb-3" aria-label="Thống kê hạn dùng">
+      <div class="col-sm-6 col-lg-2" *ngFor="let card of expiryCards">
+        <div 
+          class="card"
+          [class]="card.key"
+          [class.is-active]="card.key === 'all' ? !columnFilters['expiryStatus'] : columnFilters['expiryStatus'] === card.key"
+          (click)="toggleExpiryFilter(card.key)"
+          style="cursor: pointer;"
+        >
+          <div class="card-status-start"
+               [class.bg-danger]="card.key === 'expired' || card.key === 'danger'"
+               [class.bg-warning]="card.key === 'warning'"
+               [class.bg-success]="card.key === 'safe'"
+               [class.bg-info]="card.key === 'normal'"
+               [class.bg-primary]="card.key === 'all'"></div>
+          <div class="card-body">
+            <div class="text-secondary font-weight-medium">{{ card.label }}</div>
+            <div class="h2 mt-2 mb-1">{{ card.key === 'all' ? activeExpiryTotal : expirySummary[card.countKey!] }}</div>
+            <div class="text-secondary mb-1"><small>{{ getInventoryValueLabel(card.key) }} VNĐ</small></div>
+            <div class="text-secondary"><small class="expiry-rate">{{ getInventoryRateLabel(card.key) }}%</small></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Shop Tabs Selection -->
+    <div class="card mb-3" *ngIf="shopCards.length > 0">
+      <div class="card-header p-0">
+        <ul class="nav nav-tabs card-header-tabs nav-fill w-100 m-0">
+          <li class="nav-item" *ngFor="let shop of shopCards; trackBy: trackByShop">
+            <a
+              href="javascript:void(0)"
+              class="nav-link py-3"
+              [class.active]="shop.shopCode === activeShopCode"
+              (click)="applyShopFilter(shop.shopCode)"
+            >
+              <i class="ti ti-building-store me-2" style="font-size: 1.15rem;"></i>
+              <strong>{{ shop.label }}</strong>
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" [class.filters-collapsed]="filtersCollapsed" aria-label="Danh mục tồn kho">
+      <button class="mobile-filter-toggle" type="button" (click)="filtersCollapsed = !filtersCollapsed">
+        <span>{{ filtersCollapsed ? 'Hiện bộ lọc' : 'Ẩn bộ lọc' }}</span>
+        <i class="ti" [class.ti-filter]="filtersCollapsed" [class.ti-filter-off]="!filtersCollapsed"></i>
+      </button>
+
+      <div class="table-responsive" style="max-height: 75vh; overflow-y: auto;" (scroll)="onTableScroll($event)">
+        <table class="table table-vcenter card-table table-striped table-hover">
+          <thead>
+            <tr>
+              <th style="width: 50px;">STT</th>
+              <th>Tên SP</th>
+              <th>Mã SP</th>
+              <th class="text-end">Giá (VNĐ)</th>
+              <th>Hạn dùng</th>
+              <th class="text-end">SL</th>
+              <th class="text-end">Tổng GT tồn kho</th>
+            </tr>
+            <tr class="column-filter-row" id="columnFilters" style="background-color: var(--upharma-bg);">
+              <th></th>
+              <th>
+                <input
+                  class="form-control form-control-sm"
+                  [(ngModel)]="columnFilters['productName']"
+                  (ngModelChange)="onColumnFilterInput('productName')"
+                  type="search"
+                  placeholder="Lọc tên SP"
+                />
+              </th>
+              <th>
+                <input
+                  class="form-control form-control-sm"
+                  [(ngModel)]="columnFilters['productCode']"
+                  (ngModelChange)="onColumnFilterInput('productCode')"
+                  type="search"
+                  placeholder="Mã SP"
+                />
+              </th>
+              <th>
+                <input
+                  class="form-control form-control-sm text-end"
+                  [(ngModel)]="columnFilters['price']"
+                  (ngModelChange)="onColumnFilterInput('price')"
+                  type="search"
+                  placeholder="Giá"
+                />
+              </th>
+              <th>
+                <select
+                  class="form-select form-select-sm"
+                  [(ngModel)]="columnFilters['expiryStatus']"
+                  (ngModelChange)="onExpirySelectChange()"
+                  aria-label="Lọc hạn dùng"
+                >
+                  <option value="">Tất cả</option>
+                  <option value="expired">Hết hạn</option>
+                  <option value="danger">3 tháng</option>
+                  <option value="warning">6 tháng</option>
+                  <option value="safe">1 năm</option>
+                  <option value="normal">Hàng bình thường</option>
+                </select>
+              </th>
+              <th>
+                <input
+                  class="form-control form-control-sm text-end"
+                  [(ngModel)]="columnFilters['quantity']"
+                  (ngModelChange)="onColumnFilterInput('quantity')"
+                  type="search"
+                  placeholder="SL"
+                />
+              </th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngIf="filteredRows.length === 0">
+              <td colspan="7" class="text-center text-secondary py-4">Không có dữ liệu tồn kho</td>
+            </tr>
+            <tr
+              *ngFor="let item of displayedRows; let index = index; trackBy: trackByInventory"
+              [class]="item.expiryStatus"
+              [class.is-collapsed]="!item.expanded"
+            >
+              <td data-label="STT">{{ index + 1 }}</td>
+              <td data-label="Tên SP">
+                <span class="d-none d-lg-inline font-weight-medium">{{ item.productName }}</span>
+                <button
+                  class="btn btn-sm btn-action d-lg-none w-100 text-start border-0 bg-transparent"
+                  type="button"
+                  [attr.aria-expanded]="item.expanded"
+                  [attr.aria-label]="(item.expanded ? 'Thu gọn' : 'Mở') + ' chi tiết ' + item.productName"
+                  (click)="toggleRecord(item)"
+                >
+                  <span class="d-flex justify-content-between align-items-center w-100">
+                    <span>
+                      <span class="me-2 text-secondary">{{ index + 1 }}</span>
+                      <strong>{{ item.productName }}</strong>
+                      <div class="text-secondary mt-1">
+                        <small>
+                          Mã: {{ item.productCode }} <span class="mx-1">•</span>
+                          Giá: {{ item.priceText }} <span class="mx-1">•</span>
+                          Hạn: {{ item.expiryText }} <span class="mx-1">•</span>
+                          SL: {{ item.quantity }} <span class="mx-1">•</span>
+                          Tổng: {{ item.stockValueText }}
+                        </small>
+                      </div>
+                    </span>
+                  </span>
+                </button>
+              </td>
+              <td data-label="Mã SP"><code class="text-secondary">{{ item.productCode }}</code></td>
+              <td data-label="Giá(VNĐ)" class="text-end font-weight-medium">{{ item.priceText }}</td>
+              <td data-label="Hạn dùng">
+                <span class="badge" [ngClass]="{
+                  'bg-danger-lt text-danger': item.expiryStatus === 'expired' || item.expiryStatus === 'danger',
+                  'bg-warning-lt text-warning': item.expiryStatus === 'warning',
+                  'bg-success-lt text-success': item.expiryStatus === 'safe',
+                  'bg-secondary-lt text-secondary': item.expiryStatus === 'normal'
+                }">{{ item.expiryText }}</span>
+              </td>
+              <td data-label="SL" class="text-end fw-bold">{{ item.quantity }}</td>
+              <td data-label="Tổng GT tồn kho" class="text-end fw-bold text-primary">{{ item.stockValueText }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="loading-overlay" [class.is-visible]="isLoading" aria-live="polite">
+  <div class="loading-box">
+    <span class="loader" aria-hidden="true"></span>
+    <strong>{{ loadingTitle || 'Đang tải dữ liệu' }}</strong>
+    <div class="loading-progress" aria-hidden="true">
+      <i [style.width.%]="loadingProgressPercent"></i>
+    </div>
+    <span class="loading-progress-percent">{{ loadingProgressPercent }}%</span>
+  </div>
+</div>

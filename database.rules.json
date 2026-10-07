@@ -1,0 +1,33 @@
+{
+  "rules": {
+    ".read": "false",
+    ".write": "false",
+
+    "product_catalog": {
+      ".read": "true",
+      ".write": "auth != null"
+    },
+    "users_by_username": {
+      "$username": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "hidden_products": {
+      ".read": "true",
+      ".write": "true"
+    },
+    "shops_summary": {
+      ".read": "true",
+      ".write": "auth != null"
+    },
+    "shops": {
+      "$shopCode": {
+        "upharma_data": {
+          ".read": "true",
+          ".write": "auth != null"
+        }
+      }
+    }
+  }
+}

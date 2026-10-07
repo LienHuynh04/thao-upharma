@@ -1,0 +1,1427 @@
+import { CommonModule } from "@angular/common";
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnInit, inject } from "@angular/core";
+import { FormsModule } from "@angular/forms";
+import { Router } from "@angular/router";
+import { formatMoney, normalizeFilterText, PRODUCT_NAME_COLLATOR } from "../inventory-utils";
+import { RawRecord, ShopInfo, UpharmaService } from "../upharma.service";
+import { environment } from "../../environments/environment";
+import { ExcelExportService } from "../shared/services/excel-export.service";
+
+interface OutOfStockShopTab {
+  shopCode: string;
+  shopName: string;
+  count: number;
+  loaded: boolean;
+  loading: boolean;
+}
+
+interface OutOfStockItem {
+  rowKey: string;
+  shopCode: string;
+  productName: string;
+  productCode: string;
+  status: "Đã dự trù" | "Rỗng";
+  quantityText: string;
+  shortageMonth: string;
+  zeroStock: boolean;
+  unit: string;
+  searchText: string;
+  expanded: boolean;
+}
+
+interface OutOfStockCacheEntry {
+  cacheKey: string;
+  rows: OutOfStockItem[];
+  savedAt: number;
+}
+
+type OutOfStockTextFilterKey = "productName" | "productCode" | "status" | "quantityText" | "unit";
+
+@Component({
+  selector: "app-out-of-stock",
+  standalone: true,
+  imports: [CommonModule, FormsModule],
+  templateUrl: "./out-of-stock.component.html",
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class OutOfStockComponent implements OnInit {
+  private cdr = inject(ChangeDetectorRef);
+  readonly endpoint = "/SalesInvoice/GetOutOfStockCalculated";
+  shopsSummary: any = null;
+  shops: ShopInfo[] = [];
+  activeShopCode = "";
+  rows: OutOfStockItem[] = [];
+  timeStart = "";
+  timeEnd = "";
+  monthFilter = "current";
+  userTitle = "Đang tải người dùng...";
+  loading = false;
+  loadingProgress = 0;
+  outStockRefreshing = false;
+  visibleCount = 50;
+
+  isAppendingRows = false;
+  outStockCacheStatus = "";
+  errorText = "";
+  sidebarCollapsed = false;
+  mobileMenuOpen = false;
+  logoutConfirmOpen = false;
+  filtersCollapsed = true;
+  textFilters: Record<OutOfStockTextFilterKey, string> = {
+    productName: "",
+    productCode: "",
+    status: "",
+    quantityText: "",
+    unit: "",
+  };
+  menuGroups: Record<string, boolean> = {
+    profile: false,
+    goods: true,
+    test: false,
+  };
+  private loadedShopKeys = new Set<string>();
+  private loadingShopKeys = new Set<string>();
+  private inventoryAvailabilityPromises = new Map<string, Promise<Set<string>>>();
+  private stoppedProductPromises = new Map<string, Promise<Set<string>>>();
+  private transferOrderProcessPromises = new Map<string, Promise<Set<string>>>();
+  hiddenProductCodes = new Set<string>();
+  showHiddenMode = false;
+  showOnlyStarProducts = false;
+  successMessage = "";
+  starProductsDebugText = "";
+  starProductCodesMap = new Map<string, Set<string>>();
+
+  private get dbUrl(): string {
+    const url = (environment as any).firebaseDbUrl || "";
+    return url.replace(/\/$/, "");
+  }
+
+  constructor(
+    private readonly upharmaService: UpharmaService,
+    private readonly excelExportService: ExcelExportService,
+    private readonly router: Router,
+  ) {}
+
+  ngOnInit(): void {
+    this.sidebarCollapsed = localStorage.getItem("upharma_sidebar_collapsed") === "true";
+    void this.loadOutOfStock();
+  }
+
+  get pageClasses(): Record<string, boolean> {
+    return {
+      "sidebar-collapsed": this.sidebarCollapsed,
+      "mobile-menu-open": this.mobileMenuOpen,
+    };
+  }
+
+  get tabs(): OutOfStockShopTab[] {
+    return this.shops.map((shop) => {
+      const isLoaded = this.loadedShopKeys.has(this.getLoadedShopKey(shop.ShopCode));
+      let count = 0;
+      if (isLoaded) {
+        // When loaded, count should match the active month and filters
+        count = this.rows.filter((row) => {
+          return row.shopCode === shop.ShopCode &&
+                 row.zeroStock &&
+                 this.normalizeMonthKey(row.shortageMonth) === this.getFilterMonthKey();
+        }).length;
+      } else if (this.shopsSummary && this.shopsSummary[shop.ShopCode] !== undefined) {
+        count = this.shopsSummary[shop.ShopCode].outOfStockCount || 0;
+      } else {
+        count = this.rows.filter((row) => row.shopCode === shop.ShopCode).length;
+      }
+
+      return {
+        shopCode: shop.ShopCode,
+        shopName: shop.ShopName,
+        count,
+        loaded: isLoaded || (this.shopsSummary && this.shopsSummary[shop.ShopCode] !== undefined),
+        loading: this.loadingShopKeys.has(this.getLoadedShopKey(shop.ShopCode)),
+      };
+    });
+  }
+
+  get activeShopName(): string {
+    return this.shops.find((shop) => shop.ShopCode === this.activeShopCode)?.ShopName || this.activeShopCode;
+  }
+
+  get filteredRows(): OutOfStockItem[] {
+    return this.rows.filter((row) => {
+      if (row.shopCode !== this.activeShopCode) {
+        return false;
+      }
+
+      if (!row.zeroStock) {
+        return false;
+      }
+
+      if (this.normalizeMonthKey(row.shortageMonth) !== this.getFilterMonthKey()) {
+        return false;
+      }
+
+      const isHidden = this.hiddenProductCodes.has(row.productCode);
+      if (this.showHiddenMode) {
+        if (!isHidden) return false;
+      } else {
+        if (isHidden) return false;
+      }
+
+      if (this.showOnlyStarProducts && !this.isStarProduct(row.productCode, row.shopCode)) {
+        return false;
+      }
+
+      return this.matchesColumnFilters(row);
+    }).sort((first, second) => {
+      const firstPriority = this.getMonthPriority(this.normalizeMonthKey(first.shortageMonth));
+      const secondPriority = this.getMonthPriority(this.normalizeMonthKey(second.shortageMonth));
+
+      if (firstPriority !== secondPriority) {
+        return firstPriority - secondPriority;
+      }
+
+      return PRODUCT_NAME_COLLATOR.compare(first.productName, second.productName);
+    });
+  }
+
+  get displayedRows(): OutOfStockItem[] {
+    return this.filteredRows.slice(0, this.visibleCount);
+  }
+
+  get hasActiveShopLoaded(): boolean {
+    return this.loadedShopKeys.has(this.getLoadedShopKey(this.activeShopCode));
+  }
+
+  get shopTotalCount(): number {
+    return this.rows.filter((row) => {
+      return row.shopCode === this.activeShopCode &&
+             row.zeroStock &&
+             this.normalizeMonthKey(row.shortageMonth) === this.getFilterMonthKey() &&
+             !this.hiddenProductCodes.has(row.productCode);
+    }).length;
+  }
+
+  get plannedCount(): number {
+    return this.rows.filter((row) => {
+      return row.shopCode === this.activeShopCode &&
+             row.zeroStock &&
+             this.normalizeMonthKey(row.shortageMonth) === this.getFilterMonthKey() &&
+             row.status === "Đã dự trù" &&
+             !this.hiddenProductCodes.has(row.productCode);
+    }).length;
+  }
+
+  get unplannedCount(): number {
+    return this.rows.filter((row) => {
+      return row.shopCode === this.activeShopCode &&
+             row.zeroStock &&
+             this.normalizeMonthKey(row.shortageMonth) === this.getFilterMonthKey() &&
+             row.status !== "Đã dự trù" &&
+             !this.hiddenProductCodes.has(row.productCode);
+    }).length;
+  }
+
+  get starProductsCount(): number {
+    return this.rows.filter((row) => {
+      return row.shopCode === this.activeShopCode &&
+             row.zeroStock &&
+             this.normalizeMonthKey(row.shortageMonth) === this.getFilterMonthKey() &&
+             !this.hiddenProductCodes.has(row.productCode) &&
+             this.isStarProduct(row.productCode, row.shopCode);
+    }).length;
+  }
+
+  toggleShowOnlyStarProducts(): void {
+    this.showOnlyStarProducts = !this.showOnlyStarProducts;
+    this.resetVisibleRows();
+  }
+
+  get mobileFilterSummary(): string {
+    const filterCount = Object.values(this.textFilters).filter((value) => value.trim()).length;
+    return filterCount > 0 ? `${filterCount} bộ lọc đang dùng` : "Chưa có bộ lọc";
+  }
+
+  async loadOutOfStock(): Promise<void> {
+    this.loading = true;
+    this.loadingProgress = 10;
+    this.errorText = "";
+    let shouldLoadActiveShop = false;
+    this.cdr.markForCheck();
+
+    try {
+      const session = this.upharmaService.ensureLogin();
+      this.shops = this.upharmaService.getActiveShops();
+      this.activeShopCode = this.activeShopCode || this.shops[0]?.ShopCode || "";
+      this.userTitle = `${session.UserInfo.FullName} (ID - ${session.UserInfo.uPharmaID}) - ${this.shops.length} nhà thuốc`;
+      this.setDefaultDateRange();
+
+      try {
+        const summary = await this.upharmaService.callEndpoint<any>("/SalesInvoice/GetShopsSummaryCalculated", {});
+        if (summary && summary.data) {
+          this.shopsSummary = summary.data;
+        }
+      } catch (err) {
+        console.warn("Không tải được shops_summary:", err);
+      }
+
+      this.loadingProgress = 25;
+      shouldLoadActiveShop = Boolean(this.activeShopCode);
+    } catch (error) {
+      this.errorText = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.loading = false;
+      this.cdr.markForCheck();
+    }
+
+    if (shouldLoadActiveShop) {
+      await this.loadShop(this.activeShopCode);
+    }
+  }
+
+  async setActiveShop(shopCode: string): Promise<void> {
+    this.activeShopCode = shopCode;
+    this.visibleCount = 50;
+    this.cdr.markForCheck();
+
+    if (!this.loadedShopKeys.has(this.getLoadedShopKey(shopCode))) {
+      await this.loadShop(shopCode);
+      return;
+    }
+
+    await this.loadHiddenProducts(shopCode);
+    if (!this.starProductCodesMap.has(shopCode)) {
+      void this.loadStarProductsForShop(shopCode);
+    }
+    void this.refreshPlannedStatusForShop(shopCode);
+    this.cdr.markForCheck();
+  }
+
+  async reloadActiveShop(): Promise<void> {
+    if (!this.activeShopCode) {
+      return;
+    }
+
+    await this.loadShop(this.activeShopCode, true);
+  }
+
+  async exportExcel(): Promise<void> {
+    const activeShop = this.shops.find((shop) => shop.ShopCode === this.activeShopCode) || {
+      ShopCode: this.activeShopCode,
+      ShopName: this.activeShopName,
+    };
+    const exportMonthKey = this.getFilterMonthKey();
+    const shopRows = this.filteredRows.filter((row) => row.shopCode === activeShop.ShopCode);
+
+    if (shopRows.length === 0) {
+      return;
+    }
+
+    const sheetRows = shopRows
+      .sort((first, second) => PRODUCT_NAME_COLLATOR.compare(first.productName, second.productName))
+      .map((row) => ({
+        "Tên sp": row.productName,
+        "Mã SP": row.productCode,
+        "Trạng thái": row.status === "Đã dự trù" ? row.status : "",
+        "Tháng hết": this.getMonthDisplayLabel(row.shortageMonth),
+        "Đơn vị": row.unit || "--",
+      }));
+
+    await this.excelExportService.exportJsonToExcel(sheetRows, `hang-het-nha-${activeShop.ShopCode}.xlsx`, this.makeSheetName(exportMonthKey));
+  }
+
+  trackByShop(_: number, shop: OutOfStockShopTab): string {
+    return shop.shopCode;
+  }
+
+  trackByRow(_: number, row: OutOfStockItem): string {
+    return row.rowKey;
+  }
+
+  toggleRecord(row: OutOfStockItem): void {
+    row.expanded = !row.expanded;
+  }
+
+  toggleFilters(): void {
+    this.filtersCollapsed = !this.filtersCollapsed;
+  }
+
+  onFilterChange(): void {
+    this.resetVisibleRows();
+  }
+
+  onTableScroll(event: Event): void {
+    const target = event.target as HTMLElement | null;
+    if (!target) {
+      return;
+    }
+
+    const threshold = 160;
+    const reachedBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - threshold;
+    if (reachedBottom && this.displayedRows.length < this.filteredRows.length && !this.isAppendingRows) {
+      this.loadMoreRows();
+    }
+  }
+
+  loadMoreRows(): void {
+    if (this.isAppendingRows || this.displayedRows.length >= this.filteredRows.length) {
+      return;
+    }
+
+    this.isAppendingRows = true;
+    this.visibleCount += 25;
+    window.setTimeout(() => {
+      this.isAppendingRows = false;
+    }, 150);
+  }
+
+  private resetVisibleRows(): void {
+    this.visibleCount = 50;
+    this.isAppendingRows = false;
+  }
+
+  onMonthFilterChange(): void {
+    this.resetVisibleRows();
+  }
+
+  get monthFilterLabel(): string {
+    const monthKey = this.getFilterMonthKey();
+    return monthKey === this.getCurrentMonthKey() ? "Tháng hiện tại" : `Tháng ${monthKey}`;
+  }
+
+  getMonthOptionLabel(filterKey: "current" | "prev1" | "prev2"): string {
+    const offset = filterKey === "current" ? 0 : filterKey === "prev1" ? 1 : 2;
+    const monthKey = this.getMonthKeyByOffset(offset);
+
+    if (filterKey === "current") {
+      return "Tháng hiện tại";
+    }
+
+    return `Tháng ${Number(monthKey)}`;
+  }
+
+  getMonthDisplayLabel(value: string): string {
+    const monthKey = this.normalizeMonthKey(value);
+    return monthKey === this.getCurrentMonthKey() ? "Tháng hiện tại" : `Tháng ${monthKey}`;
+  }
+
+  private normalizeMonthKey(value: string): string {
+    const trimmed = String(value || "").trim();
+
+    if (!trimmed || trimmed === "--") {
+      return "Unknown";
+    }
+
+    if (/^\d{4}-\d{2}$/.test(trimmed)) {
+      return trimmed.split("-")[1];
+    }
+
+    const numeric = trimmed.match(/\d+/)?.[0] || trimmed;
+    return numeric.padStart(2, "0");
+  }
+
+  private getCurrentMonthKey(): string {
+    return String(new Date().getMonth() + 1).padStart(2, "0");
+  }
+
+  private getMonthKeyByOffset(offset: number): string {
+    const currentMonth = new Date().getMonth() + 1;
+    const month = ((currentMonth - offset - 1 + 12) % 12) + 1;
+    return String(month).padStart(2, "0");
+  }
+
+  private getFilterMonthKey(): string {
+    const monthOffsets: Record<string, number> = {
+      current: 0,
+      prev1: 1,
+      prev2: 2,
+    };
+    const offset = monthOffsets[this.monthFilter] ?? 0;
+    return this.getMonthKeyByOffset(offset);
+  }
+
+  private getMonthPriority(monthKey: string): number {
+    if (monthKey === "Unknown") {
+      return 99;
+    }
+
+    const currentMonth = new Date().getMonth() + 1;
+    const month = Number(monthKey);
+    if (!Number.isFinite(month)) {
+      return 98;
+    }
+
+    const diff = (currentMonth - month + 12) % 12;
+    if (diff === 0) return 0;
+    if (diff === 1) return 1;
+    if (diff === 2) return 2;
+    return 3;
+  }
+
+  private makeSheetName(monthKey: string): string {
+    return monthKey === "Unknown" ? "Unknown" : `Thang ${monthKey}`.slice(0, 31);
+  }
+
+  private formatExportDate(date: Date): string {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  }
+
+  private downloadExcelBuffer(buffer: ArrayBuffer, fileName: string): void {
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = fileName;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  toggleMenuGroup(groupKey: string): void {
+    this.menuGroups[groupKey] = !this.menuGroups[groupKey];
+  }
+
+  toggleSidebar(): void {
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      this.sidebarCollapsed = false;
+      this.mobileMenuOpen = !this.mobileMenuOpen;
+      return;
+    }
+
+    this.sidebarCollapsed = !this.sidebarCollapsed;
+    localStorage.setItem("upharma_sidebar_collapsed", String(this.sidebarCollapsed));
+  }
+
+  openLogoutConfirm(event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.logoutConfirmOpen = true;
+  }
+
+  cancelLogout(): void {
+    this.logoutConfirmOpen = false;
+  }
+
+  async confirmLogout(): Promise<void> {
+    this.upharmaService.clearSession();
+    await this.router.navigateByUrl("/login");
+  }
+
+  isStarProduct(productCode: string, shopCode?: string): boolean {
+    if (!productCode) return false;
+    const cleanCode = productCode.trim().toUpperCase();
+    const targetShop = shopCode || this.activeShopCode;
+    const shopStarCodes = this.starProductCodesMap.get(targetShop);
+    if (shopStarCodes && shopStarCodes.has(cleanCode)) {
+      return true;
+    }
+    return false;
+  }
+
+  async loadStarProductsForShop(shopCode: string, forceRefresh = false): Promise<void> {
+    try {
+      const session = this.upharmaService.getSession();
+      if (!session) return;
+
+      const now = new Date();
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const timeStart = `${lastMonthStart.getFullYear()}-${pad(lastMonthStart.getMonth() + 1)}-01 00:00:00`;
+      const timeEnd = `${lastMonthEnd.getFullYear()}-${pad(lastMonthEnd.getMonth() + 1)}-${pad(lastMonthEnd.getDate())} 23:59:59`;
+
+      const [salesRes, stableRes] = await Promise.all([
+        this.upharmaService.callEndpoint<unknown>("/SalesInvoice/GetReportSalesByShop", {
+          uPharmaID: session.UserInfo.uPharmaID,
+          Token: session.Token,
+          ShopCode: shopCode,
+          TimeStart: timeStart,
+          TimeEnd: timeEnd,
+          _useFirebaseKeyProducts: false,
+        }, { cache: true, forceRefresh }),
+        this.upharmaService.callEndpoint<unknown>("/SalesInvoice/GetStableConsumptionCalculated", {
+          uPharmaID: session.UserInfo.uPharmaID,
+          Token: session.Token,
+          ShopLst: shopCode,
+        }, { cache: true, forceRefresh })
+      ]);
+
+      const rawSales = this.extractArray(salesRes);
+      const filteredSales = rawSales.filter((row) => {
+        const pName = String(row["productName"] || row["ProductName"] || row["ItemName"] || "").toUpperCase();
+        const pCode = String(row["productCode"] || row["ProductCode"] || row["ProductID"] || row["ItemCode"] || "").toUpperCase();
+        return !(pName.includes("VOUCHER") || pCode.startsWith("VC"));
+      });
+
+      const parsedSales = filteredSales.map((row, index) => {
+        const amountIncludingVAT = Number(row["amountIncludingVAT"] || row["AmountIncludingVAT"] || row["amount"] || row["Amount"] || row["TotalAmount"] || row["ThanhTien"]) || 0;
+        const amountIncludingAdjust = Number(row["amountIncludingAdjust"] || row["AmountIncludingAdjust"]) || 0;
+        const quantity = Number(row["quantity"] || row["Quantity"]) || 0;
+        const totalAmount = Number(row["totalAmount"] || row["TotalAmount"]) || amountIncludingVAT;
+        return {
+          rowKey: `${shopCode}|${index}`,
+          shopCode: shopCode,
+          productCode: String(row["productCode"] || row["ProductCode"] || row["ProductID"] || row["ItemCode"] || "").trim().toUpperCase(),
+          productName: String(row["productName"] || row["ProductName"] || row["ItemName"] || "").trim(),
+          amount: totalAmount,
+          quantity: quantity,
+          amountIncludingVAT: amountIncludingVAT,
+          amountIncludingAdjust: amountIncludingAdjust,
+          totalAmount: totalAmount,
+        };
+      });
+
+      const groupedSales = new Map<string, any>();
+      for (const row of parsedSales) {
+        if (!row.productCode) continue;
+        const existing = groupedSales.get(row.productCode);
+        if (existing) {
+          existing.quantity += row.quantity;
+          existing.amountIncludingVAT += row.amountIncludingVAT;
+          existing.amountIncludingAdjust += row.amountIncludingAdjust;
+          existing.totalAmount = existing.amountIncludingVAT;
+          existing.amount = existing.totalAmount;
+        } else {
+          groupedSales.set(row.productCode, { ...row });
+        }
+      }
+
+      const keyRows = Array.from(groupedSales.values());
+      keyRows.sort((a, b) => b.totalAmount - a.totalAmount);
+
+      const totalAmountSum = keyRows.reduce((sum, r) => sum + r.totalAmount, 0);
+      const minItemsCount = Math.max(1, Math.ceil(keyRows.length * 0.20));
+
+      const finalKeyRows: any[] = [];
+      let runningTotal = 0;
+      for (const row of keyRows) {
+        runningTotal += row.totalAmount;
+        const cumulativePercent = totalAmountSum > 0 ? (runningTotal / totalAmountSum) * 100 : 0;
+        finalKeyRows.push(row);
+        if (finalKeyRows.length >= minItemsCount && cumulativePercent >= 80) {
+          break;
+        }
+      }
+
+      const keyProductCodes = new Set(finalKeyRows.map(r => String(r.productCode).trim().toUpperCase()));
+
+      const stableArray = this.extractArray(stableRes);
+      const stableCodes = new Set(stableArray.map(item => String(item["productCode"] || item["ProductCode"] || "").trim().toUpperCase()).filter(Boolean));
+
+      const starCodes = new Set<string>();
+      for (const code of keyProductCodes) {
+        if (stableCodes.has(code)) {
+          starCodes.add(code);
+        }
+      }
+
+      this.starProductCodesMap.set(shopCode, starCodes);
+      this.starProductCodesMap = new Map(this.starProductCodesMap); // Trigger change detection
+      this.rows = [...this.rows]; // Trigger full template re-evaluation for all rows!
+      console.log(`[Star Products] Đã tìm thấy ${starCodes.size} sản phẩm vừa là Hàng key vừa là Hàng thường trực cho shop ${shopCode}`);
+    } catch (err) {
+      console.warn(`[Star Products] Lỗi khi tính toán cho shop ${shopCode}:`, err);
+      if (!this.starProductCodesMap.has(shopCode)) {
+        this.starProductCodesMap.set(shopCode, new Set<string>());
+        this.starProductCodesMap = new Map(this.starProductCodesMap);
+        this.rows = [...this.rows];
+      }
+    }
+  }
+
+  async loadHiddenProducts(shopCode: string): Promise<void> {
+    const session = this.upharmaService.getSession();
+    if (!session) return;
+    const uPharmaID = session.UserInfo.uPharmaID;
+    
+    if (!this.dbUrl) return;
+    
+    try {
+      const url = `${this.dbUrl}/hidden_products/${uPharmaID}/${shopCode}.json`;
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        this.hiddenProductCodes = new Set(data ? Object.keys(data) : []);
+      } else {
+        this.hiddenProductCodes = new Set();
+      }
+    } catch (error) {
+      console.error("Lỗi khi tải danh sách sản phẩm ẩn:", error);
+      this.hiddenProductCodes = new Set();
+    }
+  }
+
+  showSuccess(msg: string): void {
+    this.successMessage = msg;
+    setTimeout(() => {
+      if (this.successMessage === msg) {
+        this.successMessage = "";
+      }
+    }, 3000);
+  }
+
+  async hideProduct(item: OutOfStockItem, event: Event): Promise<void> {
+    event.stopPropagation();
+    const session = this.upharmaService.getSession();
+    if (!session) return;
+    const uPharmaID = session.UserInfo.uPharmaID;
+    
+    if (!this.dbUrl) return;
+    
+    try {
+      const url = `${this.dbUrl}/hidden_products/${uPharmaID}/${item.shopCode}/${item.productCode}.json`;
+      const response = await fetch(url, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(true),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      this.hiddenProductCodes.add(item.productCode);
+      this.showSuccess(`Đã ẩn sản phẩm "${item.productName}" thành công.`);
+      console.log(`Đã ẩn sản phẩm: ${item.productCode}`);
+    } catch (error) {
+      console.error("Lỗi khi ẩn sản phẩm:", error);
+      alert("Không thể ẩn sản phẩm. Vui lòng thử lại.");
+    }
+  }
+
+  async unhideProduct(item: OutOfStockItem, event: Event): Promise<void> {
+    event.stopPropagation();
+    const session = this.upharmaService.getSession();
+    if (!session) return;
+    const uPharmaID = session.UserInfo.uPharmaID;
+    
+    if (!this.dbUrl) return;
+    
+    try {
+      const url = `${this.dbUrl}/hidden_products/${uPharmaID}/${item.shopCode}/${item.productCode}.json`;
+      const response = await fetch(url, {
+        method: "DELETE",
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      this.hiddenProductCodes.delete(item.productCode);
+      this.showSuccess(`Đã khôi phục sản phẩm "${item.productName}" thành công.`);
+      console.log(`Đã bỏ ẩn sản phẩm: ${item.productCode}`);
+    } catch (error) {
+      console.error("Lỗi khi bỏ ẩn sản phẩm:", error);
+      alert("Không thể bỏ ẩn sản phẩm. Vui lòng thử lại.");
+    }
+  }
+
+  toggleShowHiddenMode(): void {
+    this.showHiddenMode = !this.showHiddenMode;
+    this.visibleCount = 50;
+  }
+
+  private async loadShop(shopCode: string, forceReload = false): Promise<void> {
+    const session = this.upharmaService.ensureLogin();
+    const shop = this.shops.find((item) => item.ShopCode === shopCode);
+
+    if (!shop) {
+      return;
+    }
+
+    await this.loadHiddenProducts(shopCode);
+
+    const loadedShopKey = this.getLoadedShopKey(shop.ShopCode);
+
+    if (!forceReload && this.loadedShopKeys.has(loadedShopKey)) {
+      return;
+    }
+
+    if (this.loadingShopKeys.has(loadedShopKey)) {
+      this.outStockCacheStatus = `Đang tải dữ liệu cho ${shop.ShopCode}. Chị có thể chuyển tab, web sẽ không gọi lặp API.`;
+      return;
+    }
+
+    const cacheKey = this.getCacheKey(shop.ShopCode, session.UserInfo.uPharmaID);
+
+    if (!forceReload) {
+      const cachedData = await this.readOutStockCache(cacheKey);
+
+      if (cachedData) {
+        this.applyShopRows(shop.ShopCode, cachedData.rows);
+        this.loadedShopKeys.add(loadedShopKey);
+        this.outStockCacheStatus = `Đang hiển thị dữ liệu đã lưu lúc ${this.formatCacheTime(cachedData.savedAt)}. Hệ thống đang cập nhật dữ liệu mới...`;
+        void this.loadStarProductsForShop(shop.ShopCode);
+        void this.refreshPlannedStatusForShop(shop.ShopCode);
+        void this.refreshActiveShopFromApi(shop, cacheKey, true);
+        return;
+      }
+    }
+
+    await this.refreshActiveShopFromApi(shop, cacheKey, false, forceReload);
+  }
+
+  private async refreshActiveShopFromApi(
+    shop: ShopInfo,
+    cacheKey: string,
+    runInBackground: boolean,
+    forceRefresh = false,
+  ): Promise<void> {
+    const session = this.upharmaService.ensureLogin();
+    const loadedShopKey = this.getLoadedShopKey(shop.ShopCode);
+
+    if (this.loadingShopKeys.has(loadedShopKey)) {
+      return;
+    }
+
+    this.loadingShopKeys.add(loadedShopKey);
+
+    if (runInBackground) {
+      this.outStockRefreshing = true;
+      this.loadingProgress = Math.max(this.loadingProgress, 30);
+    } else {
+      this.outStockRefreshing = true;
+      this.loadingProgress = 15;
+      this.outStockCacheStatus = "Đang lấy dữ liệu hàng đã hết cho shop đang xem...";
+    }
+
+    this.errorText = "";
+
+    try {
+      const payload = {
+        uPharmaID: session.UserInfo.uPharmaID,
+        Token: session.Token,
+        ShopLst: shop.ShopCode,
+      };
+      const response = await this.upharmaService.callEndpoint<unknown>(this.endpoint, payload, {
+        cache: true,
+        forceRefresh,
+      });
+      this.loadingProgress = 70;
+      
+      try {
+        await this.loadStarProductsForShop(shop.ShopCode, forceRefresh);
+      } catch (err) {
+        console.warn("Không tải được hàng key thường trực:", err);
+      }
+      
+      this.loadingProgress = 85;
+      const shopRows: OutOfStockItem[] = (this.extractArray(response) as unknown as OutOfStockItem[]).sort((first, second) =>
+        PRODUCT_NAME_COLLATOR.compare(first.productName, second.productName),
+      );
+      this.loadingProgress = 95;
+
+      this.applyShopRows(shop.ShopCode, shopRows);
+      this.loadedShopKeys.add(this.getLoadedShopKey(shop.ShopCode));
+      await this.writeOutStockCache({
+        cacheKey,
+        rows: shopRows,
+        savedAt: Date.now(),
+      });
+      this.outStockCacheStatus = `Dữ liệu hàng đã hết đã cập nhật lúc ${this.formatCacheTime(Date.now())}.`;
+      this.loadingProgress = 100;
+    } catch (error) {
+      this.errorText = error instanceof Error ? error.message : String(error);
+      if (this.rows.some((row) => row.shopCode === shop.ShopCode)) {
+        this.outStockCacheStatus = "Chưa cập nhật được dữ liệu mới, vẫn đang hiển thị dữ liệu đã lưu.";
+      }
+      this.loadingProgress = 100;
+    } finally {
+      this.loadingShopKeys.delete(loadedShopKey);
+      this.outStockRefreshing = this.loadingShopKeys.size > 0;
+    }
+  }
+
+  private applyShopRows(shopCode: string, shopRows: OutOfStockItem[]): void {
+    this.rows = [
+      ...this.rows.filter((row) => row.shopCode !== shopCode),
+      ...shopRows,
+    ];
+  }
+
+  private setDefaultDateRange(): void {
+    if (this.timeStart && this.timeEnd) {
+      return;
+    }
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth() - 2, 1, 0, 0, 0);
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0);
+
+    this.timeStart = this.upharmaService.formatUpharmaDateTime(todayStart);
+    this.timeEnd = this.upharmaService.formatUpharmaDateTime(todayEnd);
+  }
+
+  private getLoadedShopKey(shopCode: string): string {
+    return `${shopCode}:${this.timeStart}:${this.timeEnd}`;
+  }
+
+  private getCacheKey(shopCode: string, uPharmaID: number): string {
+    return [
+      "out-stock",
+      "v5",
+      uPharmaID,
+      shopCode,
+      this.timeStart,
+      this.timeEnd,
+    ].join("|");
+  }
+
+  private async readOutStockCache(cacheKey: string): Promise<OutOfStockCacheEntry | null> {
+    try {
+      const db = await this.openOutStockCacheDb();
+      const cachedData = await new Promise<OutOfStockCacheEntry | undefined>((resolve, reject) => {
+        const transaction = db.transaction("outStockCache", "readonly");
+        const request = transaction.objectStore("outStockCache").get(cacheKey);
+
+        request.onsuccess = () => resolve(request.result as OutOfStockCacheEntry | undefined);
+        request.onerror = () => reject(request.error);
+      });
+
+      db.close();
+      return cachedData || null;
+    } catch (error) {
+      console.warn("Không đọc được cache hàng hết kho:", error);
+      return null;
+    }
+  }
+
+  private async writeOutStockCache(cacheEntry: OutOfStockCacheEntry): Promise<void> {
+    try {
+      const db = await this.openOutStockCacheDb();
+
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction("outStockCache", "readwrite");
+        const request = transaction.objectStore("outStockCache").put(cacheEntry);
+
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+
+      db.close();
+    } catch (error) {
+      console.warn("Không lưu được cache hàng hết kho:", error);
+    }
+  }
+
+  private openOutStockCacheDb(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open("upharma-out-stock-cache", 1);
+
+      request.onupgradeneeded = () => {
+        const db = request.result;
+
+        if (!db.objectStoreNames.contains("outStockCache")) {
+          db.createObjectStore("outStockCache", { keyPath: "cacheKey" });
+        }
+      };
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  private formatCacheTime(value: number): string {
+    const date = new Date(value);
+    const pad = (part: number) => String(part).padStart(2, "0");
+
+    return `${pad(date.getHours())}:${pad(date.getMinutes())} ${pad(date.getDate())}-${pad(date.getMonth() + 1)}`;
+  }
+
+  private getInventoryAvailability(shopCode: string, forceRefresh: boolean): Promise<Set<string>> {
+    if (!this.inventoryAvailabilityPromises.has(shopCode) || forceRefresh) {
+      const request = this.upharmaService
+        .loadInventoryResource({ forceRefresh, shopCodes: [shopCode] })
+        .then((resource) => {
+          const availability = new Set<string>();
+
+          for (const row of resource.data || []) {
+            const quantity = this.pick(row, [
+              "QuantityExist",
+              "ExistQuantity",
+              "Quantity",
+              "Qty",
+              "SL",
+              "SoLuong",
+              "TonKho",
+              "InventoryQuantity",
+              "StockQty",
+              "RemainQty",
+            ]);
+
+            if (this.toNumber(quantity) <= 0) {
+              continue;
+            }
+
+            const shopCode = String(row["__shopCode"] || row["ShopCode"] || "");
+            const productName = String(
+              this.pick(row, [
+                "ProductName",
+                "Product_Name",
+                "ProductFullName",
+                "Product_Name_Full",
+                "TenSP",
+                "TenSanPham",
+                "Name",
+                "ItemName",
+              ]),
+            );
+            const key = this.getInventoryProductKey(shopCode, productName);
+
+            if (shopCode && key) {
+              availability.add(key);
+            }
+          }
+
+          return availability;
+        })
+        .catch((error) => {
+          this.inventoryAvailabilityPromises.delete(shopCode);
+          throw error;
+        });
+
+      this.inventoryAvailabilityPromises.set(shopCode, request);
+    }
+
+    return this.inventoryAvailabilityPromises.get(shopCode)!;
+  }
+
+  private getTransferOrderProcessProductIds(shopCode: string, forceRefresh: boolean): Promise<Set<string>> {
+    if (!this.transferOrderProcessPromises.has(shopCode) || forceRefresh) {
+      const session = this.upharmaService.ensureLogin();
+      const request = this.upharmaService
+        .callEndpoint<unknown>("/TransferOrder/GetTransferOrderProcess", {
+          uPharmaID: session.UserInfo.uPharmaID,
+          Token: session.Token,
+          ShopCode: shopCode,
+        }, {
+          cache: false,
+          forceRefresh,
+        })
+        .then((response) => {
+          const productIds = new Set<string>();
+
+          for (const row of this.extractArray(response)) {
+            const dateExceed = this.toNumber(this.pick(row, [
+              "DateExceed",
+              "Date_Exceed",
+              "SoNgayVuot",
+              "DaysExceeded",
+            ]));
+            if (!Number.isFinite(dateExceed) || dateExceed > 60) {
+              continue;
+            }
+
+            const productId = String(this.pick(row, [
+              "ProductID",
+              "ProductCode",
+              "Product_ID",
+              "MaSP",
+              "MaSanPham",
+              "ItemCode",
+              "Code",
+            ])).trim();
+
+            if (productId) {
+              productIds.add(productId);
+            }
+          }
+
+          return productIds;
+        })
+        .catch((error) => {
+          this.transferOrderProcessPromises.delete(shopCode);
+          console.warn("Không lấy được trạng thái dự trù từ TransferOrder/GetTransferOrderProcess:", error);
+          return new Set<string>();
+        });
+
+      this.transferOrderProcessPromises.set(shopCode, request);
+    }
+
+    return this.transferOrderProcessPromises.get(shopCode)!;
+  }
+
+  private getStoppedProductIds(shopCode: string, forceRefresh: boolean): Promise<Set<string>> {
+    const requestKey = shopCode;
+
+    if (!this.stoppedProductPromises.has(requestKey) || forceRefresh) {
+      const session = this.upharmaService.ensureLogin();
+      const request = Promise.all([
+        this.upharmaService.callEndpoint<unknown>("/ProductOff/GetProductOff", {
+          uPharmaID: session.UserInfo.uPharmaID,
+          Token: session.Token,
+          ShopCode: shopCode,
+        }, {
+          cache: false,
+          forceRefresh,
+        }),
+        this.upharmaService.callEndpoint<unknown>("/Product/GetItemLstWithFollower", {
+          uPharmaID: session.UserInfo.uPharmaID,
+          Token: session.Token,
+          ShopCode: shopCode,
+          ProductType: "",
+          Search: "",
+          NumberRow: 0,
+          PageNumber: 0,
+        }, {
+          cache: false,
+          forceRefresh,
+        }),
+      ])
+        .then(([productOffResponse, followerResponse]) => {
+          const stoppedProductIds = new Set<string>();
+
+          for (const row of this.extractArray(productOffResponse)) {
+            const productId = String(this.pick(row, [
+              "ProductID",
+              "ProductCode",
+              "Product_ID",
+              "MaSP",
+              "MaSanPham",
+              "ItemCode",
+              "Code",
+            ])).trim();
+
+            if (productId) {
+              stoppedProductIds.add(productId);
+            }
+          }
+
+          for (const row of this.extractArray(followerResponse)) {
+            const registerType = String(this.pick(row, [
+              "RegisterType",
+              "Register_Type",
+              "LoaiDangKy",
+              "LoaiDK",
+            ])).trim().toLowerCase();
+            if (registerType !== "hàng dừng" && registerType !== "hang dung") {
+              continue;
+            }
+
+            const productId = String(this.pick(row, [
+              "ProductID",
+              "ProductCode",
+              "Product_ID",
+              "MaSP",
+              "MaSanPham",
+              "ItemCode",
+              "Code",
+            ])).trim();
+
+            if (productId) {
+              stoppedProductIds.add(productId);
+            }
+          }
+
+          return stoppedProductIds;
+        })
+        .catch((error) => {
+          this.stoppedProductPromises.delete(requestKey);
+          console.warn("Không lấy được danh sách hàng dừng từ ProductOff/GetProductOff + Product/GetItemLstWithFollower:", error);
+          return new Set<string>();
+        });
+
+      this.stoppedProductPromises.set(requestKey, request);
+    }
+
+    return this.stoppedProductPromises.get(requestKey)!;
+  }
+
+  private async refreshPlannedStatusForShop(shopCode: string): Promise<void> {
+    const shopRows = this.rows.filter((row) => row.shopCode === shopCode);
+
+    if (shopRows.length === 0) {
+      return;
+    }
+
+    const plannedProductIds = await this.getTransferOrderProcessProductIds(shopCode, false);
+    let changed = false;
+    const updatedRows: OutOfStockItem[] = this.rows.map((row) => {
+      if (row.shopCode !== shopCode) {
+        return row;
+      }
+
+      const nextStatus: OutOfStockItem["status"] = plannedProductIds.has(row.productCode.trim()) ? "Đã dự trù" : "Rỗng";
+      if (row.status !== nextStatus) {
+        changed = true;
+        return {
+          ...row,
+          status: nextStatus,
+        };
+      }
+
+      return row;
+    });
+
+    if (!changed) {
+      return;
+    }
+
+    this.rows = updatedRows;
+
+    try {
+      const session = this.upharmaService.ensureLogin();
+      const cacheKey = this.getCacheKey(shopCode, session.UserInfo.uPharmaID);
+      await this.writeOutStockCache({
+        cacheKey,
+        rows: updatedRows.filter((row) => row.shopCode === shopCode),
+        savedAt: Date.now(),
+      });
+    } catch (error) {
+      console.warn("Không cập nhật được cache trạng thái dự trù mới:", error);
+    }
+  }
+
+  private getInventoryProductKey(shopCode: string, productName: string): string {
+    const canonicalName = normalizeFilterText(productName)
+      .replace(/\(\s*s?dk(?:\s*[-:]?\s*[\d*]+)?\s*\)/gi, " ")
+      .replace(/\bs?dk\s*[-:]?\s*[\d*]+\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return canonicalName ? `${shopCode}|${canonicalName}` : "";
+  }
+
+  private matchesColumnFilters(row: OutOfStockItem): boolean {
+    const textTargets: Record<OutOfStockTextFilterKey, string> = {
+      productName: row.productName,
+      productCode: row.productCode,
+      status: row.status,
+      quantityText: row.quantityText,
+      unit: row.unit,
+    };
+
+    for (const [key, filterValue] of Object.entries(this.textFilters) as [OutOfStockTextFilterKey, string][]) {
+      const normalizedFilter = normalizeFilterText(filterValue);
+      if (!normalizedFilter) {
+        continue;
+      }
+
+      if (key === 'status') {
+        const isRowPlanned = row.status === 'Đã dự trù';
+        const isFilterPlanned = filterValue === 'Đã dự trù';
+        const isFilterUnplanned = filterValue === 'Chưa dự trù';
+
+        if (isFilterPlanned && !isRowPlanned) {
+          return false;
+        }
+        if (isFilterUnplanned && isRowPlanned) {
+          return false;
+        }
+        continue;
+      }
+
+      if (!normalizeFilterText(textTargets[key]).includes(normalizedFilter)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private normalizeSalesSpeedRow(
+    row: RawRecord,
+    shop: ShopInfo,
+    rowIndex: number,
+    plannedProductIds: Set<string>,
+  ): OutOfStockItem {
+    const productName = String(
+      this.pick(row, ["ProductName", "Product_Name", "ProductFullName", "TenSP", "TenSanPham", "Name", "ItemName"]),
+    ).trim();
+    const productCode = String(this.pick(row, ["ProductID", "ProductCode", "Product_ID", "MaSP", "MaSanPham", "ItemCode", "Code"]));
+    const quantity = this.pick(row, [
+      "QuantityExist",
+      "ExistQuantity",
+      "Quantity",
+      "Qty",
+      "SL",
+      "SoLuong",
+      "TonKho",
+      "InventoryQuantity",
+      "RemainQty",
+    ]);
+    const unit = String(this.pick(row, ["UnitOfMeasure", "UnitName", "Unit", "DonVi", "DonViTinh", "DVT"]));
+    const quantityText = quantity === "" ? "--" : String(quantity);
+    const zeroStock = this.toNumber(quantity) === 0;
+    const shortageMonth = this.getShortageMonthLabel(row);
+    const item: OutOfStockItem = {
+      rowKey: [shop.ShopCode, productCode, productName, rowIndex].join("|"),
+      shopCode: shop.ShopCode,
+      productName,
+      productCode,
+      status: plannedProductIds.has(productCode.trim()) ? "Đã dự trù" : "Rỗng",
+      quantityText,
+      shortageMonth,
+      zeroStock,
+      unit,
+      searchText: "",
+      expanded: false,
+    };
+
+    item.searchText = normalizeFilterText(
+      [
+        item.shopCode,
+        item.productName,
+        item.productCode,
+        item.quantityText,
+        item.shortageMonth,
+        item.unit,
+        formatMoney(this.pick(row, ["UnitPrice", "Price", "Gia", "GiaBan"])),
+      ].join(" "),
+    );
+
+    return item;
+  }
+
+  private getShortageMonthLabel(row: RawRecord): string {
+    const sessionText = String(this.pick(row, ["Session", "Period", "MonthLabel", "Month", "Thang"])).trim();
+    if (sessionText) {
+      const monthMatch = sessionText.match(/Tháng\s*(\d+)/i);
+      if (monthMatch) {
+        return monthMatch[1].padStart(2, "0");
+      }
+      const numeric = sessionText.match(/\d+/);
+      if (numeric) {
+        return numeric[0].padStart(2, "0");
+      }
+      return sessionText;
+    }
+
+    const dateText = String(this.pick(row, ["TimeBegin", "TimeStart", "BeginTime", "StartTime", "Date", "Ngay"])).trim();
+    const parsed = this.parseDateTimeValue(dateText);
+    if (parsed !== null) {
+      const date = new Date(parsed);
+      const month = date.getMonth() + 1;
+      return String(month).padStart(2, "0");
+    }
+
+    return "--";
+  }
+
+  private extractArray(data: unknown): RawRecord[] {
+    if (Array.isArray(data)) {
+      return data.filter((item): item is RawRecord => Boolean(item) && typeof item === "object");
+    }
+
+    if (!data || typeof data !== "object") {
+      return [];
+    }
+
+    const record = data as RawRecord;
+    const preferredKeys = ["SalesSpeedLst", "Data", "data", "DataLst", "ListData", "Rows", "Table"];
+
+    for (const key of preferredKeys) {
+      const value = record[key];
+
+      if (Array.isArray(value)) {
+        return value.filter((item): item is RawRecord => Boolean(item) && typeof item === "object");
+      }
+    }
+
+    for (const value of Object.values(record)) {
+      if (Array.isArray(value)) {
+        return value.filter((item): item is RawRecord => Boolean(item) && typeof item === "object");
+      }
+    }
+
+    return [];
+  }
+
+  private pick(row: RawRecord, keys: string[]): unknown {
+    const normalizedMap = new Map(Object.keys(row).map((key) => [key.toLowerCase().replaceAll("_", ""), key]));
+
+    for (const key of keys) {
+      const directValue = row[key];
+
+      if (directValue !== undefined && directValue !== null && directValue !== "") {
+        return directValue;
+      }
+
+      const matchedKey = normalizedMap.get(key.toLowerCase().replaceAll("_", ""));
+
+      if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== null && row[matchedKey] !== "") {
+        return row[matchedKey];
+      }
+    }
+
+    return "";
+  }
+
+  private formatDisplayDate(value: unknown): string {
+    if (!value) {
+      return "--";
+    }
+
+    const text = String(value);
+    const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+    if (match) {
+      return `${match[3]}-${match[2]}-${match[1]}`;
+    }
+
+    return text;
+  }
+
+  private toApiDateTime(value: string): string {
+    if (!value) {
+      return "";
+    }
+
+    const normalizedValue = value.includes("T") ? value.replace("T", " ") : value;
+
+    return normalizedValue.length === 16 ? `${normalizedValue}:00` : normalizedValue;
+  }
+
+  private parseDateTimeValue(value: unknown): number | null {
+    if (!value) {
+      return null;
+    }
+
+    const text = String(value).trim();
+    const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+    const viMatch = text.match(/^(\d{2})[/-](\d{2})[/-](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+
+    if (isoMatch) {
+      return new Date(
+        Number(isoMatch[1]),
+        Number(isoMatch[2]) - 1,
+        Number(isoMatch[3]),
+        Number(isoMatch[4] || 0),
+        Number(isoMatch[5] || 0),
+        Number(isoMatch[6] || 0),
+      ).getTime();
+    }
+
+    if (viMatch) {
+      return new Date(
+        Number(viMatch[3]),
+        Number(viMatch[2]) - 1,
+        Number(viMatch[1]),
+        Number(viMatch[4] || 0),
+        Number(viMatch[5] || 0),
+        Number(viMatch[6] || 0),
+      ).getTime();
+    }
+
+    const parsed = new Date(text).getTime();
+
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  private toNumber(value: unknown): number {
+    if (typeof value === "number") {
+      return value;
+    }
+
+    const normalizedValue = String(value ?? "").replace(",", ".").trim();
+
+    return Number(normalizedValue);
+  }
+}

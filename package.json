@@ -20,9 +20,14 @@
     "@angular/platform-server": "^22.2.0",
     "@angular/router": "^22.2.0",
     "@angular/ssr": "^22.2.1",
+    "@firebase/app": "^0.16.2",
+    "@tabler/core": "^1.6.1",
+    "chart.js": "^4.5.1",
     "express": "^5.1.0",
+    "firebase-admin": "^14.5.0",
     "rxjs": "~7.8.0",
-    "tslib": "^2.3.0"
+    "tslib": "^2.3.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@angular/build": "^22.2.1",

@@ -1,0 +1,1316 @@
+/* ================================================================
+   UPHARMA Global Styles
+   Foundation: @tabler/core 1.4.0
+   Custom CSS: Brand overrides + business-specific utilities only
+   ================================================================ */
+
+@import "../node_modules/@tabler/core/dist/css/tabler.min.css";
+
+/* ────────────────────────────────────────────────────────────────
+   1. BRAND COLOR OVERRIDES & DESIGN TOKENS
+   Override Tabler defaults and build UPharma style tokens
+   ──────────────────────────────────────────────────────────────── */
+:root {
+  --tblr-primary: #c98c1f;
+  --tblr-primary-rgb: 201, 140, 31;
+  --tblr-font-sans-serif: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  
+  /* Semantic tokens - Light Theme */
+  --upharma-bg: #f6f8fb;
+  --upharma-surface: #ffffff;
+  --upharma-card: #ffffff;
+  --upharma-border: #e6e8eb;
+  --upharma-text: #1e293b;
+  --upharma-muted-text: #64748b;
+  --upharma-brand-brown: #6d3c15;
+}
+
+[data-bs-theme="dark"] {
+  /* Semantic tokens - Dark Theme */
+  --tblr-body-bg: #0b1324;
+  --tblr-bg-surface: #15223c;
+  --tblr-border-color: rgba(255, 255, 255, 0.08);
+  --tblr-border-color-translucent: rgba(255, 255, 255, 0.06);
+  --tblr-body-color: #f4f6fa;
+  --tblr-secondary-color: #94a3b8;
+  --tblr-card-bg: #15223c;
+  --tblr-card-border-color: rgba(255, 255, 255, 0.08);
+  
+  --upharma-bg: #0b1324;
+  --upharma-surface: #15223c;
+  --upharma-card: #15223c;
+  --upharma-border: rgba(255, 255, 255, 0.08);
+  --upharma-text: #f4f6fa;
+  --upharma-muted-text: #94a3b8;
+  --upharma-brand-brown: #c98c1f;
+}
+
+body {
+  font-family: var(--tblr-font-sans-serif);
+}
+
+/* ────────────────────────────────────────────────────────────────
+   2. HORIZONTAL NAVBAR THEME
+   Modern dark navy horizontal bar with golden UPharma accents
+   ──────────────────────────────────────────────────────────────── */
+/* Compact Header constraint */
+header.navbar {
+  min-height: 56px !important;
+  height: auto !important;
+  padding: 0.5rem 1rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+header.navbar .navbar-brand {
+  font-size: 1.25rem !important;
+  line-height: 1.2 !important;
+  padding: 0 !important;
+}
+
+header.navbar .avatar {
+  width: 32px !important;
+  height: 32px !important;
+}
+
+/* Horizontal Navbar layout inside single navbar */
+header.navbar .navbar-nav {
+  display: flex !important;
+  align-items: center !important;
+  flex-direction: row !important;
+}
+
+header.navbar .nav-item {
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+header.navbar .nav-link {
+  color: #94a3b8 !important;
+  font-weight: 500 !important;
+  font-size: 13.5px !important;
+  padding: 6px 14px !important;
+  display: flex !important;
+  align-items: center !important;
+  transition: all 0.18s ease !important;
+}
+
+header.navbar .nav-link:hover,
+header.navbar .nav-link.active {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-radius: 4px;
+}
+
+header.navbar .nav-link-icon i {
+  font-size: 1.1rem !important;
+  margin-right: 6px !important;
+}
+
+/* Precise Dropdown Positioning */
+header.navbar .dropdown-menu {
+  position: absolute !important;
+  top: 100% !important;
+  left: 0 !important;
+  margin-top: 4px !important;
+  display: none;
+  background: #0f1a34 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25) !important;
+  z-index: 1000 !important;
+  min-width: 220px !important;
+  padding: 6px 0 !important;
+  border-radius: 4px !important;
+}
+
+header.navbar .dropdown-menu.show {
+  display: block !important;
+}
+
+header.navbar .dropdown-item {
+  color: #94a3b8 !important;
+  font-size: 13px !important;
+  padding: 8px 16px !important;
+  transition: all 0.15s ease !important;
+}
+
+header.navbar .dropdown-item:hover,
+header.navbar .dropdown-item.active {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Responsive adjustment for Mobile view */
+@media (max-width: 767.98px) {
+  header.navbar {
+    height: auto !important;
+    flex-wrap: wrap !important;
+  }
+  header.navbar .navbar-collapse {
+    background: #0d172d !important;
+    position: absolute !important;
+    top: 56px !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 999 !important;
+    padding: 1rem !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  }
+  header.navbar .navbar-collapse .navbar-nav {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: 100% !important;
+  }
+  header.navbar .nav-item {
+    width: 100% !important;
+  }
+  header.navbar .nav-link {
+    padding: 10px 16px !important;
+    width: 100% !important;
+  }
+  header.navbar .dropdown-menu {
+    position: static !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: rgba(0, 0, 0, 0.15) !important;
+    padding-left: 20px !important;
+    min-width: 100% !important;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────
+   3. TOPBAR BRAND TWEAKS
+   ──────────────────────────────────────────────────────────────── */
+.topbar-report-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #c98c1f, #a36f14);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--tblr-border-radius);
+  padding: 0.375rem 0.875rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.topbar-report-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(201, 140, 31, 0.3);
+}
+.topbar-report-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+header.navbar .btn-ghost-light:hover,
+header.navbar .btn-ghost-light:focus,
+.btn-ghost-light:hover,
+.btn-ghost-light:focus {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+  border-radius: 4px;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   3A. STANDARDIZED UI PRIMITIVES (TABLER COHESIVE SYSTEM)
+   ──────────────────────────────────────────────────────────────── */
+
+/* Cards System */
+.card {
+  border-radius: 6px !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05) !important;
+}
+[data-bs-theme="dark"] .card {
+  background-color: var(--tblr-card-bg, #15223c) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Buttons System */
+.btn-primary {
+  --tblr-btn-color: #ffffff;
+  --tblr-btn-bg: var(--tblr-primary);
+  --tblr-btn-border-color: var(--tblr-primary);
+  --tblr-btn-hover-color: #ffffff;
+  --tblr-btn-hover-bg: #b07a1b;
+  --tblr-btn-hover-border-color: #b07a1b;
+  --tblr-btn-active-color: #ffffff;
+  --tblr-btn-active-bg: #966717;
+  --tblr-btn-active-border-color: #966717;
+}
+
+/* Forms System */
+[data-bs-theme="dark"] .form-control,
+[data-bs-theme="dark"] .form-select {
+  background-color: #0f182e !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f4f6fa !important;
+}
+[data-bs-theme="dark"] .form-control:focus,
+[data-bs-theme="dark"] .form-select:focus {
+  background-color: #0f182e !important;
+  border-color: var(--tblr-primary) !important;
+  box-shadow: 0 0 0 0.25rem rgba(201, 140, 31, 0.15) !important;
+}
+[data-bs-theme="dark"] .form-label {
+  color: #f4f6fa;
+}
+
+/* Tables System */
+.table {
+  width: 100%;
+  margin-bottom: 0;
+  vertical-align: middle;
+}
+[data-bs-theme="dark"] .table {
+  --tblr-table-bg: transparent;
+  --tblr-table-border-color: rgba(255, 255, 255, 0.08);
+  --tblr-table-striped-bg: rgba(255, 255, 255, 0.02);
+  --tblr-table-hover-bg: rgba(255, 255, 255, 0.04);
+  color: #f4f6fa;
+}
+[data-bs-theme="dark"] .table th {
+  background-color: rgba(0, 0, 0, 0.15) !important;
+  color: #94a3b8 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Custom scrollbar for table-responsive */
+.table-responsive {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.table-responsive > .table {
+  width: 100% !important;
+  min-width: 100%;
+}
+.table-responsive > .table th,
+.table-responsive > .table td {
+  white-space: normal;
+  word-break: break-word;
+}
+.table-responsive::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.table-responsive::-webkit-scrollbar-track {
+  background: transparent;
+}
+.table-responsive::-webkit-scrollbar-thumb {
+  background: rgba(201, 140, 31, 0.2);
+  border-radius: 3px;
+}
+.table-responsive::-webkit-scrollbar-thumb:hover {
+  background: rgba(201, 140, 31, 0.4);
+}
+
+/* Badges / Status System */
+.badge {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Progress System */
+.progress {
+  height: 0.5rem;
+  border-radius: 100rem;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+.progress-bar {
+  background-color: var(--tblr-primary);
+  border-radius: 100rem;
+}
+
+/* Notification badge blink animation */
+.badge-blink {
+  animation: blink 1.5s ease-in-out infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ────────────────────────────────────────────────────────────────
+   4. LOGIN PAGE (standalone, outside Layout)
+   ──────────────────────────────────────────────────────────────── */
+.login-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at 20% 15%, rgba(225, 170, 44, 0.18), transparent 30%),
+    linear-gradient(135deg, #24170e, #4b3019);
+}
+.login-card {
+  display: grid;
+  width: min(900px, 100%);
+  grid-template-columns: 0.8fr 1fr;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1.5rem;
+  background: var(--tblr-bg-surface);
+  box-shadow: 0 35px 90px rgba(0, 0, 0, 0.35);
+}
+.pharmacist-stage {
+  position: relative;
+  display: grid;
+  min-height: 560px;
+  place-items: center;
+  overflow: hidden;
+  background: linear-gradient(145deg, #f2c458, #9f620e);
+}
+.pharmacist-stage::before {
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  content: "";
+}
+.pharmacist-stage::after {
+  position: absolute;
+  content: "UPHARMA";
+  color: rgba(63, 37, 11, 0.22);
+  font-size: 40px;
+  font-weight: 950;
+  letter-spacing: 4px;
+  transform: rotate(-90deg);
+}
+.pharmacist-stage > * { display: none; }
+.login-form {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 3rem;
+}
+.login-kicker {
+  color: var(--tblr-primary);
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+.login-form h1 {
+  margin: 0.5rem 0 0.625rem;
+  font-size: 1.75rem;
+  line-height: 1.25;
+}
+.login-form > p {
+  margin: 0 0 1.25rem;
+  color: var(--tblr-secondary);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.login-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.login-form input {
+  height: 2.625rem;
+  border: 1px solid var(--tblr-border-color);
+  border-radius: var(--tblr-border-radius);
+  padding: 0 0.75rem;
+  outline: 0;
+  color: var(--tblr-body-color);
+  background: var(--tblr-body-bg);
+  font-size: 0.875rem;
+}
+.login-form input:focus {
+  border-color: var(--tblr-primary);
+  box-shadow: 0 0 0 0.25rem rgba(var(--tblr-primary-rgb), 0.15);
+}
+.login-form button[type="submit"],
+.login-submit {
+  min-height: 2.75rem;
+  margin-top: 1.125rem;
+  border: 0;
+  border-radius: var(--tblr-border-radius);
+  color: #fff;
+  background: linear-gradient(135deg, #f0bf4a, #c98c1f);
+  font-weight: 700;
+  cursor: pointer;
+}
+.login-error {
+  border-radius: var(--tblr-border-radius);
+  padding: 0.5625rem;
+  color: var(--tblr-danger);
+  background: rgba(var(--tblr-danger-rgb), 0.08);
+  font-size: 0.75rem;
+  margin-top: 0.75rem;
+}
+.login-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.login-progress > span {
+  height: 0.4375rem;
+  flex: 1;
+  overflow: hidden;
+  border-radius: 100rem;
+  background: rgba(var(--tblr-primary-rgb), 0.15);
+}
+.login-progress i {
+  display: block;
+  height: 100%;
+  background: var(--tblr-primary);
+}
+.login-progress strong { font-size: 0.5625rem; }
+
+@media (max-width: 900px) {
+  .login-card { grid-template-columns: 1fr; }
+  .pharmacist-stage { display: none; }
+  .login-form { padding: 2.25rem 1.75rem; }
+}
+@media (max-width: 620px) {
+  .login-form h1 { font-size: 1.5rem; }
+}
+
+/* ────────────────────────────────────────────────────────────────
+   5. LOADING OVERLAYS & SPINNERS
+   Used by inventory loading, confirm dialogs, detail modals
+   ──────────────────────────────────────────────────────────────── */
+.loading-overlay,
+.stable-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1060;
+  display: none;
+  place-items: center;
+  padding: 1.125rem;
+  background: rgba(30, 20, 12, 0.58);
+  backdrop-filter: blur(4px);
+}
+.loading-overlay.is-visible,
+.stable-detail-overlay.is-visible {
+  display: grid;
+}
+.loading-box {
+  display: flex;
+  width: min(360px, 100%);
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid var(--tblr-border-color);
+  border-radius: var(--tblr-border-radius-lg);
+  padding: 1.75rem;
+  background: var(--tblr-bg-surface);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.28);
+}
+.loader {
+  display: inline-block;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 3px solid rgba(var(--tblr-primary-rgb), 0.25);
+  border-top-color: var(--tblr-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-box strong {
+  margin-top: 0.875rem;
+  font-size: 0.75rem;
+}
+.loading-progress {
+  width: 100%;
+  height: 0.4375rem;
+  overflow: hidden;
+  border-radius: 100rem;
+  margin-top: 1rem;
+  background: rgba(var(--tblr-primary-rgb), 0.15);
+}
+.loading-progress i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--tblr-primary), #f0bf4a);
+}
+.loading-progress-percent {
+  margin-top: 0.4375rem;
+  color: var(--tblr-secondary);
+  font-size: 0.5625rem;
+}
+
+/* Stable consumption detail modal */
+.stable-detail-modal {
+  position: relative;
+  width: min(480px, 94%); /* Thu nhỏ chiều rộng tối đa và thêm lề an toàn */
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  border: 1px solid var(--tblr-border-color);
+  border-radius: var(--tblr-border-radius-lg);
+  padding: 1.25rem; /* Giảm padding cho gọn */
+  background: var(--tblr-bg-surface);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
+}
+.stable-detail-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  border: 0;
+  color: var(--tblr-secondary);
+  background: transparent;
+  font-size: 1.375rem;
+  cursor: pointer;
+}
+.stable-detail-kicker {
+  color: var(--tblr-primary);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.stable-detail-modal h2 {
+  margin: 0.375rem 1.875rem 1rem 0;
+  font-size: 1.25rem;
+}
+.stable-detail-meta {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.625rem;
+}
+.stable-detail-meta > span,
+.stable-detail-month-grid article {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--tblr-border-color);
+  border-radius: var(--tblr-border-radius);
+  padding: 0.75rem;
+  background: var(--tblr-body-bg);
+}
+.stable-detail-meta small,
+.stable-detail-month-grid span,
+.stable-detail-month-grid small {
+  color: var(--tblr-secondary);
+  font-size: 0.625rem;
+}
+.stable-detail-meta strong {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+}
+.stable-detail-modal h3 {
+  margin: 1.25rem 0 0.625rem;
+  font-size: 0.875rem;
+}
+.stable-detail-month-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5625rem;
+}
+.stable-detail-month-grid article.is-strong {
+  border-color: var(--tblr-primary);
+  background: rgba(var(--tblr-primary-rgb), 0.08);
+}
+.stable-detail-month-grid strong {
+  margin: 0.3125rem 0;
+  font-size: 1.0625rem;
+}
+
+@media (max-width: 620px) {
+  .stable-detail-meta {
+    grid-template-columns: repeat(2, 1fr); /* 2 cột cho meta */
+  }
+  .stable-detail-month-grid {
+    grid-template-columns: repeat(2, 1fr); /* 2 cột cho các tháng */
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────
+   6. BUSINESS-SPECIFIC UTILITIES
+   Expiry status colors, status chips, inventory row highlights
+   ──────────────────────────────────────────────────────────────── */
+
+/* Expiry row highlight colors for inventory table */
+.table tbody tr.expired { background-color: rgba(214, 57, 57, 0.04); }
+.table tbody tr.expired:hover { background-color: rgba(214, 57, 57, 0.08); }
+.table tbody tr.danger { background-color: rgba(245, 159, 0, 0.04); }
+.table tbody tr.danger:hover { background-color: rgba(245, 159, 0, 0.08); }
+.table tbody tr.warning { background-color: rgba(66, 153, 225, 0.03); }
+.table tbody tr.warning:hover { background-color: rgba(66, 153, 225, 0.07); }
+.table tbody tr.safe { background-color: rgba(47, 179, 68, 0.03); }
+.table tbody tr.safe:hover { background-color: rgba(47, 179, 68, 0.06); }
+
+/* Status chip (used in out-of-stock planned status) */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--tblr-border-color);
+  border-radius: 100rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+.status-chip--planned {
+  border-color: rgba(47, 179, 68, 0.22);
+  color: var(--tblr-success);
+  background: rgba(47, 179, 68, 0.08);
+}
+.status-chip--unplanned {
+  border-color: rgba(214, 57, 57, 0.22);
+  color: var(--tblr-danger);
+  background: rgba(214, 57, 57, 0.08);
+}
+
+/* Expiry legend dots (used in topbar inventory context) */
+.expiry-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+/* Modal blur backdrop & theme overrides */
+body.modal-open {
+  overflow: hidden !important;
+}
+
+.modal-blur {
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background-color: var(--tblr-bg-surface) !important;
+  color: var(--tblr-body-color) !important;
+  border-color: var(--tblr-border-color) !important;
+}
+
+.modal-header {
+  border-bottom-color: var(--tblr-border-color);
+}
+
+.modal-footer {
+  border-top-color: var(--tblr-border-color);
+}
+
+/* Number formatting in tables */
+.text-tabular { font-variant-numeric: tabular-nums; }
+
+/* Mobile filter toggle (inventory page) */
+.mobile-filter-toggle {
+  display: none;
+}
+@media (max-width: 768px) {
+  .mobile-filter-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    border: 0;
+    border-bottom: 1px solid var(--tblr-border-color);
+    padding: 0.75rem;
+    color: var(--tblr-body-color);
+    background: var(--tblr-bg-surface);
+    cursor: pointer;
+  }
+  .mobile-filter-toggle-copy {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+  }
+  .mobile-filter-toggle-copy strong { font-size: 0.75rem; }
+  .mobile-filter-toggle-copy small {
+    margin-top: 0.1875rem;
+    color: var(--tblr-secondary);
+    font-size: 0.625rem;
+  }
+  .filters-collapsed .column-filter-row { display: none; }
+}
+
+/* ────────────────────────────────────────────────────────────────
+   FIX CỨNG TIÊU ĐỀ BẢNG & HÀNG LỌC FILTER KHI SCROLL (TẤT CẢ CÁC TRANG)
+   ──────────────────────────────────────────────────────────────── */
+.table-responsive {
+  position: relative;
+}
+
+.table-responsive > table > thead,
+.table-responsive > .table > thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: var(--tblr-bg-surface);
+}
+
+.table-responsive > table > thead > tr,
+.table-responsive > .table > thead > tr {
+  background-color: var(--tblr-bg-surface);
+}
+
+.table-responsive > table > thead > tr > th,
+.table-responsive > .table > thead > tr > th {
+  background-color: var(--tblr-bg-surface);
+  box-shadow: inset 0 -1px 0 var(--tblr-border-color);
+}
+
+/* ────────────────────────────────────────────────────────────────
+   7. N8N WORKFLOW DIALOG (cronjob page)
+   ──────────────────────────────────────────────────────────────── */
+.n8n-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 1060;
+  display: grid;
+  place-items: center;
+  padding: 1.125rem;
+  background: rgba(30, 20, 12, 0.62);
+}
+.n8n-dialog-shell {
+  position: relative;
+  width: min(850px, 100%);
+  max-height: calc(100vh - 30px);
+  overflow: auto;
+  border: 1px solid var(--tblr-border-color);
+  border-radius: var(--tblr-border-radius-lg);
+  background: var(--tblr-bg-surface);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.3);
+}
+.n8n-dialog-header,
+.n8n-intro,
+.n8n-example-content { padding: 1.125rem 1.25rem; }
+.n8n-dialog-header { border-bottom: 1px solid var(--tblr-border-color); }
+.n8n-dialog-header h2 { margin: 0.25rem 0; font-size: 1.0625rem; }
+.n8n-dialog-header p,
+.n8n-intro p { margin: 0.25rem 0; color: var(--tblr-secondary); font-size: 0.75rem; }
+.n8n-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  border: 0;
+  color: var(--tblr-secondary);
+  background: transparent;
+  font-size: 1.375rem;
+  cursor: pointer;
+}
+.n8n-kicker {
+  color: var(--tblr-primary);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.n8n-example-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  padding: 0 1.25rem;
+}
+.n8n-example-tabs button {
+  border: 1px solid var(--tblr-border-color);
+  border-radius: var(--tblr-border-radius);
+  padding: 0.5625rem;
+  color: var(--tblr-body-color);
+  background: var(--tblr-body-bg);
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+.n8n-example-tabs button.is-active {
+  border-color: var(--tblr-primary);
+  background: rgba(var(--tblr-primary-rgb), 0.08);
+}
+.n8n-flow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5625rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.n8n-flow li {
+  border: 1px solid var(--tblr-border-color);
+  border-radius: var(--tblr-border-radius);
+  padding: 0.75rem;
+}
+.n8n-step-number {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  border-radius: var(--tblr-border-radius-sm);
+  color: #fff;
+  background: var(--tblr-primary);
+  font-size: 0.5625rem;
+  font-weight: 700;
+}
+.n8n-flow strong { display: block; margin: 0.5rem 0 0.25rem; font-size: 0.75rem; }
+.n8n-flow span,
+.n8n-flow em { color: var(--tblr-secondary); font-size: 0.625rem; }
+.n8n-result {
+  border-radius: var(--tblr-border-radius);
+  padding: 0.6875rem;
+  color: var(--tblr-success);
+  background: rgba(var(--tblr-success-rgb), 0.08);
+  font-size: 0.75rem;
+}
+.n8n-example-heading h3 { margin: 0.25rem 0; font-size: 1.0625rem; }
+.n8n-example-heading p { margin: 0.25rem 0; color: var(--tblr-secondary); font-size: 0.75rem; }
+
+@media (max-width: 620px) {
+  .n8n-example-tabs,
+  .n8n-flow { grid-template-columns: 1fr; }
+}
+
+/* Outstanding Active Shop Tab Highlight & Indicator */
+.card-header-tabs .nav-link {
+  border-bottom: 2px solid transparent !important;
+  transition: all 0.2s ease !important;
+}
+
+.card-header-tabs .nav-link.active {
+  color: var(--tblr-primary) !important;
+  border-bottom-color: var(--tblr-primary) !important;
+  background: rgba(var(--tblr-primary-rgb), 0.05) !important;
+  font-weight: 800 !important;
+  position: relative !important;
+}
+
+.card-header-tabs .nav-link.active::after {
+  content: "▼";
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--tblr-primary);
+  font-size: 10px;
+  z-index: 10;
+}
+
+/* Page Header compact tweaks */
+.page-header {
+  margin-bottom: 4px !important;
+  padding-top: 0px !important;
+  padding-bottom: 0px !important;
+}
+.page-header .page-pretitle {
+  font-size: 11px !important;
+  margin-bottom: 2px !important;
+}
+.page-header .page-title {
+  font-size: 22px !important;
+  line-height: 1.2 !important;
+}
+
+/* Expiry KPI cards compact optimization */
+.row[aria-label="Thống kê hạn dùng"] {
+  gap: 0 !important;
+  margin-left: -6px !important;
+  margin-right: -6px !important;
+}
+.row[aria-label="Thống kê hạn dùng"] > div {
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+  margin-bottom: 6px !important;
+}
+.row[aria-label="Thống kê hạn dùng"] .card {
+  min-height: 105px !important;
+  height: auto !important;
+}
+.row[aria-label="Thống kê hạn dùng"] .card-body {
+  padding: 8px 10px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  height: 100% !important;
+}
+.row[aria-label="Thống kê hạn dùng"] .text-secondary.font-weight-medium {
+  font-size: 13px !important;
+  line-height: 1.2 !important;
+}
+.row[aria-label="Thống kê hạn dùng"] .h2 {
+  font-size: 22px !important;
+  line-height: 1.1 !important;
+  margin-top: 1px !important;
+  margin-bottom: 1px !important;
+  font-weight: 700 !important;
+}
+.row[aria-label="Thống kê hạn dùng"] .text-secondary {
+  font-size: 12.5px !important;
+  line-height: 1.2 !important;
+}
+
+/* KPI Card Interactive Hover & Active states */
+.row[aria-label="Thống kê hạn dùng"] .card,
+.row[aria-label="Thống kê đối soát FEFO"] .card {
+  transition: all 0.2s ease-in-out !important;
+  position: relative !important;
+}
+.row[aria-label="Thống kê hạn dùng"] .card:hover,
+.row[aria-label="Thống kê đối soát FEFO"] .card:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15) !important;
+}
+.row[aria-label="Thống kê hạn dùng"] .card.is-active,
+.row[aria-label="Thống kê đối soát FEFO"] .card.is-active {
+  border-color: var(--tblr-primary) !important;
+  background: rgba(201, 140, 31, 0.08) !important;
+  box-shadow: 0 0 10px rgba(201, 140, 31, 0.25) !important;
+}
+.row[aria-label="Thống kê hạn dùng"] .card.is-active::before,
+.row[aria-label="Thống kê đối soát FEFO"] .card.is-active::before {
+  content: "✓";
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  color: var(--tblr-primary);
+  font-size: 10px;
+  font-weight: 800;
+  z-index: 10;
+}
+
+/* Shop selector tabs header sizing */
+.card-header-tabs .nav-link {
+  height: 44px !important;
+  padding: 0 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.card-header-tabs .nav-link .ti-building-store {
+  font-size: 1.1rem !important;
+}
+.card-header-tabs .nav-link strong {
+  font-size: 13px !important;
+}
+.card-header-tabs .nav-link .badge {
+  font-size: 11px !important;
+}
+
+/* Beautiful hover effect for table rows */
+.table tbody tr {
+  transition: background-color 0.15s ease, color 0.15s ease !important;
+}
+.table tbody tr:hover {
+  background-color: rgba(201, 140, 31, 0.06) !important;
+  color: var(--tblr-primary) !important;
+}
+[data-bs-theme="dark"] .table tbody tr:hover {
+  background-color: rgba(201, 140, 31, 0.08) !important;
+  color: #ffffff !important;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   8. RESPONSIVE RECORD TOGGLE (mobile accordion in tables)
+   Đảm bảo nút toggle mobile ẩn hoàn toàn trên desktop
+   ──────────────────────────────────────────────────────────────── */
+
+/* Desktop: ẩn nút toggle, hiện tên SP */
+@media (min-width: 992px) {
+  .record-toggle {
+    display: none !important;
+  }
+  .desktop-product-name {
+    display: inline !important;
+  }
+}
+
+/* Mobile: ẩn tên SP dạng text, hiện nút toggle */
+@media (max-width: 991.98px) {
+  .desktop-product-name {
+    display: none !important;
+  }
+  .record-toggle {
+    display: flex !important;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border: 0;
+    background: transparent;
+    color: var(--tblr-body-color);
+    text-align: left;
+    cursor: pointer;
+    gap: 0.5rem;
+  }
+  .record-toggle-index {
+    flex-shrink: 0;
+    color: var(--tblr-secondary);
+    font-size: 0.75rem;
+  }
+  .record-toggle-copy {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+  .record-toggle-copy strong {
+    font-size: 0.8125rem;
+    line-height: 1.3;
+  }
+  .record-toggle-copy small {
+    color: var(--tblr-secondary);
+    font-size: 0.6875rem;
+  }
+  .record-toggle-icon {
+    flex-shrink: 0;
+    color: var(--tblr-secondary);
+    font-size: 1rem;
+    transition: transform 0.2s ease;
+  }
+  .record-toggle[aria-expanded="true"] .record-toggle-icon {
+    transform: rotate(180deg);
+  }
+
+  /* Bảng mobile: hiển thị siêu gọn 1 dòng chứa thông tin gộp và nút hành động bên phải (chỉ áp dụng cho các trang hàng hóa đặc thù) */
+  app-out-of-stock .table-responsive > .table,
+  app-slow-selling .table-responsive > .table,
+  app-stable-consumption .table-responsive > .table,
+  app-inventory-new .table-responsive > .table {
+    table-layout: auto !important;
+  }
+  app-out-of-stock .table thead,
+  app-slow-selling .table thead,
+  app-stable-consumption .table thead,
+  app-inventory-new .table thead {
+    display: none !important; /* Ẩn thead trên mobile */
+  }
+  app-out-of-stock .table tbody tr,
+  app-slow-selling .table tbody tr,
+  app-stable-consumption .table tbody tr,
+  app-inventory-new .table tbody tr {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    position: relative !important;
+    border-bottom: 1px solid rgba(120, 120, 120, 0.15);
+    padding: 10px 12px !important;
+    background: var(--tblr-card-bg, #fff) !important;
+  }
+  /* Chỉ hiển thị cột tên sản phẩm (gộp thông tin) và cột Hành động trên mobile */
+  app-out-of-stock .table tbody td,
+  app-slow-selling .table tbody td,
+  app-stable-consumption .table tbody td,
+  app-inventory-new .table tbody td {
+    display: none !important;
+  }
+  app-out-of-stock .table tbody tr.is-collapsed td,
+  app-slow-selling .table tbody tr.is-collapsed td,
+  app-stable-consumption .table tbody tr.is-collapsed td,
+  app-inventory-new .table tbody tr.is-collapsed td {
+    display: none !important;
+  }
+  app-out-of-stock .table tbody tr td.product-cell,
+  app-out-of-stock .table tbody tr td[data-label="Tên SP"],
+  app-slow-selling .table tbody tr td.product-cell,
+  app-slow-selling .table tbody tr td[data-label="Tên SP"],
+  app-stable-consumption .table tbody tr td.product-cell,
+  app-stable-consumption .table tbody tr td[data-label="Tên SP"],
+  app-inventory-new .table tbody tr td.product-cell,
+  app-inventory-new .table tbody tr td[data-label="Tên SP"] {
+    display: block !important;
+    flex: 1 !important;
+    margin-right: 12px !important;
+  }
+  app-out-of-stock .table tbody tr td[data-label="Hành động"],
+  app-slow-selling .table tbody tr td[data-label="Hành động"],
+  app-stable-consumption .table tbody tr td[data-label="Hành động"],
+  app-inventory-new .table tbody tr td[data-label="Hành động"] {
+    display: block !important;
+    flex-shrink: 0 !important;
+    width: auto !important;
+  }
+  /* Ẩn icon accordion mở rộng */
+  .record-toggle-icon {
+    display: none !important;
+  }
+  .record-toggle {
+    pointer-events: none; /* Vô hiệu hóa click toggle accordion */
+    padding: 0 !important;
+  }
+  .record-toggle:focus {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+}
+
+/* ===== Responsive: Page Header Filter Controls ===== */
+@media (max-width: 767.98px) {
+  .page-header .row {
+    flex-direction: column;
+  }
+  .page-header .col-auto.ms-auto {
+    margin-left: 0 !important;
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+  .page-header .btn-list {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .page-header .btn-list > * {
+    flex: 1 1 auto;
+  }
+  .page-header .d-inline-flex {
+    width: 100%;
+  }
+  .page-header .d-inline-flex .form-control,
+  .page-header .d-inline-flex .form-select {
+    min-width: 0;
+    flex: 1;
+  }
+}
+
+/* ===== Responsive: Card Header Tabs (Không scroll, tự động thu nhỏ vừa khít màn hình di động) ===== */
+.card-header-tabs {
+  flex-wrap: nowrap !important;
+}
+.card-header-tabs .nav-link {
+  white-space: nowrap !important;
+}
+@media (max-width: 991.98px) {
+  .card-header {
+    overflow: hidden !important;
+    flex-wrap: nowrap !important;
+  }
+  .card-header-tabs {
+    width: 100% !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    margin: 0 !important;
+  }
+  .card-header-tabs .nav-item {
+    flex: 1 1 0% !important; /* Chia đều 100% chiều rộng màn hình cho các tab */
+    min-width: 0 !important;
+    flex-shrink: 1 !important;
+  }
+  .card-header-tabs .nav-link i.ti-building-store {
+    display: none !important; /* Ẩn icon trên mobile để tiết kiệm diện tích */
+  }
+  .card-header-tabs .nav-link {
+    padding: 8px 2px !important;
+    text-align: center !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .card-header-tabs .nav-link strong {
+    font-size: 11px !important;
+  }
+  .card-header-tabs .nav-link .badge {
+    font-size: 9px !important;
+    padding: 2px 4px !important;
+    margin-left: 2px !important;
+  }
+}
+
+/* ===== Tùy biến nút: Chỉ xám khi disabled, còn lại hiển thị màu sắc chủ đạo ===== */
+.btn-secondary:not(:disabled):not([disabled]) {
+  background-color: var(--tblr-primary) !important;
+  color: #fff !important;
+  border-color: var(--tblr-primary) !important;
+}
+.btn-secondary:not(:disabled):not([disabled]):hover {
+  background-color: rgba(var(--tblr-primary-rgb), 0.8) !important;
+  color: #fff !important;
+  border-color: rgba(var(--tblr-primary-rgb), 0.8) !important;
+}
+
+.btn-outline-secondary:not(:disabled):not([disabled]) {
+  color: var(--tblr-primary) !important;
+  border-color: rgba(var(--tblr-primary-rgb), 0.4) !important;
+}
+.btn-outline-secondary:not(:disabled):not([disabled]):hover {
+  background-color: var(--tblr-primary) !important;
+  color: #fff !important;
+  border-color: var(--tblr-primary) !important;
+}
+
+/* ===== Tối ưu khối KPI Thống kê hạn dùng trên Mobile (2 cột song song, nhỏ gọn) ===== */
+@media (max-width: 767.98px) {
+  .row[aria-label="Thống kê hạn dùng"] > div {
+    width: 50% !important;
+    flex: 0 0 50% !important;
+    max-width: 50% !important;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+    margin-bottom: 8px !important;
+  }
+  .row[aria-label="Thống kê hạn dùng"] {
+    margin-left: -4px !important;
+    margin-right: -4px !important;
+  }
+  .row[aria-label="Thống kê hạn dùng"] .card {
+    min-height: 85px !important;
+    height: 85px !important;
+  }
+  .row[aria-label="Thống kê hạn dùng"] .card-body {
+    padding: 6px 8px !important;
+  }
+  .row[aria-label="Thống kê hạn dùng"] .text-secondary.font-weight-medium {
+    font-size: 11px !important;
+    line-height: 1.2 !important;
+  }
+  .row[aria-label="Thống kê hạn dùng"] .h2 {
+    font-size: 1.1rem !important;
+    margin-top: 2px !important;
+    margin-bottom: 2px !important;
+  }
+  .row[aria-label="Thống kê hạn dùng"] .text-secondary small {
+    font-size: 9px !important;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────
+   FULL WIDTH LAYOUT OVERRIDE
+   Make container-xl and page-content-wrapper full width (100%)
+   ──────────────────────────────────────────────────────────────── */
+.container-xl,
+.page-content-wrapper {
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+/* ────────────────────────────────────────────────────────────────
+   UI/UX ENHANCEMENTS & UTILITIES
+   Accessibility, Touch targets, Standardized controls & Typography
+   ──────────────────────────────────────────────────────────────── */
+.form-select,
+.form-select-sm {
+  font-size: 13px;
+  border-radius: 6px;
+  border-color: var(--upharma-border);
+  min-height: 36px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-select:focus,
+.form-select-sm:focus {
+  border-color: var(--tblr-primary);
+  box-shadow: 0 0 0 3px rgba(var(--tblr-primary-rgb), 0.15);
+}
+
+header.navbar .nav-link {
+  min-height: 38px !important;
+}
+
+header.navbar .dropdown-item {
+  min-height: 38px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.text-label-caps {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  color: var(--upharma-muted-text) !important;
+}
+
+.progress-enhanced {
+  height: 8px !important;
+  border-radius: 50rem !important;
+}
+
+
+

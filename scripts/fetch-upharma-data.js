@@ -466,23 +466,9 @@ async function run() {
   };
 
   const resources = [
-    'inventory',
-    'invoices',
-    'messages',
-    'employees',
-    'employees_detail',
-    'orders',
-    'sales_speed',
-    'statistics_shop',
-    'customer_new',
-    'dashboard_statistics',
-    'dashboard_customers',
-    'key_products',
-    'transfer_process',
-    'product_off',
-    'product_follower',
-    'sales_report',
     'shop_plan',
+    'employees_detail',
+    'sales_report',
   ];
   
   for (const resourceName of resources) {
@@ -664,10 +650,13 @@ async function run() {
     console.log(`[resource] DONE ${resourceName}. Đã lưu ${resourceName}.json (đã ẩn danh PII)`);
   }
 
-  await calculateAndUploadSummaries(shops, allShopsData, db);
+  if (allShopsData.sales_speed && Object.keys(allShopsData.sales_speed).length > 0) {
+    await calculateAndUploadSummaries(shops, allShopsData, db);
+  }
 
-  // Danh mục sản phẩm toàn hệ thống (GetItemLstWithFollower) → /product_catalog (lọc bỏ KM và Hàng Bỏ)
-  await fetchAndUploadProductCatalog(loginData, db, allShopsData);
+  if (allShopsData.product_follower && Object.keys(allShopsData.product_follower).length > 0) {
+    await fetchAndUploadProductCatalog(loginData, db, allShopsData);
+  }
   
   console.log("Hoàn thành fetch data!");
   clearInterval(heartbeatTimer);

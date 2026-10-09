@@ -594,8 +594,9 @@ async function run() {
           allShopsData.statistics_shop_raw[shop.ShopCode] = responseData;
         }
 
+        const payloadData = (resourceName === 'dashboard_statistics' || resourceName === 'dashboard_customers') ? responseData : mappedArray;
+
         if (db) {
-          const payloadData = (resourceName === 'dashboard_statistics' || resourceName === 'dashboard_customers') ? responseData : mappedArray;
           const hasError = responseData && (
             (responseData.RespCode !== undefined && responseData.RespCode !== 0) ||
             (responseData.data && responseData.data.RespCode !== undefined && responseData.data.RespCode !== 0) ||
@@ -634,20 +635,21 @@ async function run() {
     }
 
     if (db) {
-      const combinedByShop = {};
-      for (const result of shopResults) {
-        if (result && result.shop && result.shop.ShopCode) {
-          combinedByShop[result.shop.ShopCode] = result.payloadData !== undefined ? result.payloadData : result.mappedArray;
-        }
-      }
       try {
-        await db.ref(`upharma_data/${resourceName}`).set({
-          success: true,
-          resource: resourceName,
-          data: combinedByShop,
-          fetchedAt: new Date().toISOString(),
-        });
-        console.log(`[Firebase RTDB] ✅ Đã lưu gộp upharma_data/${resourceName} (${Object.keys(combinedByShop).length} shops)`);
+        let savedCount = 0;
+        for (const result of shopResults) {
+          if (result && result.shop && result.shop.ShopCode) {
+            const dataToSave = result.payloadData !== undefined ? result.payloadData : result.mappedArray;
+            if (dataToSave && (Array.isArray(dataToSave) ? dataToSave.length > 0 : Object.keys(dataToSave).length > 0)) {
+              await db.ref(`upharma_data/${resourceName}/data/${result.shop.ShopCode}`).set(dataToSave);
+              savedCount++;
+            }
+          }
+        }
+        await db.ref(`upharma_data/${resourceName}/success`).set(true);
+        await db.ref(`upharma_data/${resourceName}/resource`).set(resourceName);
+        await db.ref(`upharma_data/${resourceName}/fetchedAt`).set(new Date().toISOString());
+        console.log(`[Firebase RTDB] ✅ Đã lưu gộp upharma_data/${resourceName} (${savedCount} shops)`);
       } catch (err) {
         console.warn(`[Firebase RTDB] Lỗi lưu gộp upharma_data/${resourceName}:`, err.message);
       }

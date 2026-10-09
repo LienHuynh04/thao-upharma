@@ -49,9 +49,11 @@ export class ReportGeneratorService {
     const dateStr = `${pad(now.getDate())}${pad(currentMonth)}_${currentYear}`;
     const filename = `Bao_Cao_Tong_Hop_Upharma_${dateStr}.html`;
 
-    // 1. Fetch Employee Plans & Shop Plans
-    onProgress?.("Đang tải dữ liệu chỉ tiêu nhà thuốc & nhân viên...", 20);
-    const employeePlansMap: Record<string, any[]> = {};
+    // Employee plan endpoint is not used; reports use shop-level plans only.
+    onProgress?.("Đang tải dữ liệu chỉ tiêu nhà thuốc...", 20);
+    const employeePlansMap: Record<string, any[]> = Object.fromEntries(
+      shops.map((shop) => [shop.ShopCode, []])
+    );
     const shopPlansMap: Record<string, any> = {};
 
     const startOfYear = `${currentYear}-01-01 00:00:00`;
@@ -59,26 +61,6 @@ export class ReportGeneratorService {
 
     await Promise.all(
       shops.map(async (shop) => {
-        try {
-          const empRes = await this.upharmaService.callEndpoint<any>(
-            "/EmployeePlan/GetEmployeePlanLst",
-            {
-              Month: currentMonth,
-              Year: currentYear,
-              Token: session.Token,
-              uPharmaID: String(session.UserInfo.uPharmaID),
-              ShopCode: shop.ShopCode,
-            },
-            { cache: true }
-          );
-          if (empRes && Array.isArray(empRes.EmployeePlanLst)) {
-            employeePlansMap[shop.ShopCode] = empRes.EmployeePlanLst;
-          }
-        } catch (e) {
-          console.warn("Lỗi tải employee plan cho shop", shop.ShopCode, e);
-          employeePlansMap[shop.ShopCode] = [];
-        }
-
         try {
           const shopRes = await this.upharmaService.callEndpoint<any>(
             "/ShopPlan/GetShopPlanByTime",
@@ -88,8 +70,7 @@ export class ReportGeneratorService {
               ShopCode: shop.ShopCode,
               Token: session.Token,
               uPharmaID: String(session.UserInfo.uPharmaID),
-            },
-            { cache: true }
+            }
           );
           if (shopRes && Array.isArray(shopRes.ShopPlanLst)) {
             const currentMonthText = pad(currentMonth);
@@ -225,8 +206,7 @@ export class ReportGeneratorService {
               TimeEnd: timeEndNow,
               ShopCode: shop.ShopCode,
               _useFirebaseCache: true,
-            },
-            { cache: true }
+            }
           );
 
           const extractRows = (obj: any): any[] => {

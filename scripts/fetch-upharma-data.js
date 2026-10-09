@@ -80,7 +80,7 @@ async function requestUpharma(pathname, payload) {
 function extractArray(data) {
   if (Array.isArray(data)) return data;
   if (!data || typeof data !== "object") return [];
-  const preferredKeys = ["SalesSpeedLst", "Data", "data", "DataLst", "ListData", "InventoryLst", "InventoryList", "Table", "Rows", "ProductLst", "ReportSalesLst"];
+  const preferredKeys = ["ShopPlanLst", "SalesSpeedLst", "Data", "data", "DataLst", "ListData", "InventoryLst", "InventoryList", "Table", "Rows", "ProductLst", "ReportSalesLst"];
   for (const key of preferredKeys) {
     if (Array.isArray(data[key])) return data[key];
   }
@@ -231,6 +231,10 @@ function getResourceConfig(resourceName, now = new Date()) {
       pathname: "/Employee/GetEmployeeOfShop",
       payload: () => ({}),
     },
+    employees_detail: {
+      pathname: "/Organization/GetSalesmanByShop",
+      payload: () => ({}),
+    },
     orders: {
       pathname: "/SalesInvoice/GetOrderHeaderByShop",
       payload: () => ({
@@ -319,6 +323,17 @@ function getResourceConfig(resourceName, now = new Date()) {
           Search: "",
           PageNumber: 1,
           NumberRow: 100000,
+        };
+      },
+    },
+    shop_plan: {
+      pathname: "/ShopPlan/GetShopPlanByTime",
+      payload: () => {
+        const startOfYear = `${now.getFullYear() - 1}-01-01 00:00:00`;
+        const endOfYear = `${now.getFullYear()}-12-31 23:59:59`;
+        return {
+          TimeStart: startOfYear,
+          TimeEnd: endOfYear,
         };
       },
     },
@@ -445,7 +460,9 @@ async function run() {
     statistics_shop: {},
     dashboard_statistics: {},
     dashboard_customers: {},
-    key_products: {}
+    key_products: {},
+    shop_plan: {},
+    employees_detail: {}
   };
 
   const resources = [
@@ -453,6 +470,7 @@ async function run() {
     'invoices',
     'messages',
     'employees',
+    'employees_detail',
     'orders',
     'sales_speed',
     'statistics_shop',
@@ -464,6 +482,7 @@ async function run() {
     'product_off',
     'product_follower',
     'sales_report',
+    'shop_plan',
   ];
   
   for (const resourceName of resources) {

@@ -330,7 +330,7 @@ export class InventoryExpirationTestComponent implements OnInit {
       const response = await this.upharmaService.callEndpoint<any>(
         "/LocalStore/GetInventoryExpiration",
         payload,
-        { cache: false }
+        {}
       );
       this.elapsedMs = Math.round(performance.now() - t0);
       this.loadingProgress = 85;

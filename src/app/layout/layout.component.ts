@@ -83,26 +83,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         ? shops.filter((s) => s.ShopCode === activeShopCode)
         : (shops.length > 0 ? [shops[0]] : shops);
 
-      // 1. Fetch Employee Plans
+      // Employee plans are not loaded; this report only uses shop-level plans.
       const employeePlans: any[] = [];
-      await Promise.all(
-        shopsToProcess.map(async (shop) => {
-          try {
-            const res = await this.upharma.callEndpoint<any>("/EmployeePlan/GetEmployeePlanLst", {
-              Month: currentMonth,
-              Year: currentYear,
-              Token: session.Token,
-              uPharmaID: String(session.UserInfo.uPharmaID),
-              ShopCode: shop.ShopCode,
-            });
-            if (res && Array.isArray(res.EmployeePlanLst)) {
-              employeePlans.push(...res.EmployeePlanLst);
-            }
-          } catch (e) {
-            console.warn("Failed to load employee plan for", shop.ShopCode, e);
-          }
-        })
-      );
 
       // 2. Fetch Shop Plans
       const shopPlans: any[] = [];
@@ -203,26 +185,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       const currentMonth = now.getMonth() + 1;
       const currentYear = now.getFullYear();
 
-      // 1. Fetch Employee Plans
+      // Employee plans are not loaded; this prompt uses shop-level plans.
       const employeePlans: any[] = [];
-      await Promise.all(
-        shops.map(async (shop) => {
-          try {
-            const res = await this.upharma.callEndpoint<any>("/EmployeePlan/GetEmployeePlanLst", {
-              Month: currentMonth,
-              Year: currentYear,
-              Token: session.Token,
-              uPharmaID: String(session.UserInfo.uPharmaID),
-              ShopCode: shop.ShopCode,
-            });
-            if (res && Array.isArray(res.EmployeePlanLst)) {
-              employeePlans.push(...res.EmployeePlanLst);
-            }
-          } catch (e) {
-            console.warn("Failed to load employee plan for", shop.ShopCode, e);
-          }
-        })
-      );
 
       // 2. Fetch Shop Plans
       const shopPlans: any[] = [];

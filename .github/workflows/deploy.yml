@@ -1,15 +1,13 @@
-name: Deploy Angular to GitHub Pages with Cron Data Fetch
+name: Auto Sync Firebase & Deploy Web
 
 on:
   push:
     branches:
       - master
   schedule:
-    # 0h UTC (7h sáng VN)
-    - cron: '0 0 * * *'
-    # Mỗi 1 tiếng 1 lần
-    - cron: '0 * * * *'
-  workflow_dispatch: # Cho phép trigger bằng tay
+    # Tự động đồng bộ data lên Firebase & Deploy mỗi 30 phút
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Cho phép trigger bằng tay từ tab Actions
 
 permissions:
   contents: read

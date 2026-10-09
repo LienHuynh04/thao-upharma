@@ -58,7 +58,7 @@ Chart.register(...registerables);
             <div class="bar-track"><div class="bar-fill" [style.width.%]="salesPercent > 100 ? 100 : salesPercent"></div></div>
             <span class="target-pct">{{ salesPercent }}%</span>
           </div>
-          <div class="target-note">Target: {{ formatTr(targetSales) }} &nbsp;·&nbsp; Dự kiến: {{ formatTr(projectedSales) }} ({{ salesPercent }}%)</div>
+          <div class="target-note">Target: {{ formatTr(targetSales) }} &nbsp;·&nbsp; Dự kiến: {{ formatTr(projectedSales) }} ({{ projectedSalesPercent }}%)</div>
           <div class="breakdown">CƠ CẤU KHU VỰC</div>
           <div class="breakdown-row"><span class="dot"></span><span class="name">Đà Nẵng</span><span class="pct">{{ daNangSalesPct.toFixed(1) }}%</span><span class="amt">{{ formatTr(daNangSales) }}</span></div>
           <div class="breakdown-row"><span class="dot"></span><span class="name">Huế</span><span class="pct">{{ hueSalesPct.toFixed(1) }}%</span><span class="amt">{{ formatTr(hueSales) }}</span></div>
@@ -86,9 +86,11 @@ Chart.register(...registerables);
           <div class="value">{{ hhsRatioPct === null ? '—' : hhsRatioPct.toFixed(1) + '%' }}</div>
           <div class="target-row">
             <div class="bar-track"><div class="bar-fill" [style.width.%]="hhsRatioPct === null ? 0 : (hhsRatioPct >= 35 ? 100 : Math.min(100, Math.round((hhsRatioPct/35)*100)))"></div></div>
-            <span class="pill" [class.green]="hhsRatioPct !== null && hhsRatioPct >= 35" [class.red]="hhsRatioPct !== null && hhsRatioPct < 35" style="white-space:nowrap;">{{ hhsRatioPct === null ? 'Thiếu dữ liệu' : (hhsRatioPct >= 35 ? '✓ Đạt' : '✗ Chưa') }}</span>
+            <span class="pill" [class.green]="hhsRatioPct !== null && hhsRatioPct >= 35" [class.red]="hhsRatioPct !== null && hhsRatioPct < 35" style="white-space:nowrap;">{{ hhsRatioPct === null ? 'Chưa có doanh số thực tế' : (hhsRatioPct >= 35 ? '✓ Đạt' : '✗ Chưa') }}</span>
           </div>
-          <div class="target-note">Target: 35% · Có chỉ tiêu: {{ shopsWithPlanData }}/{{ shopList.length }} nhà thuốc</div>
+          <div class="target-note">
+            Kết quả: {{ hhsRatioPct === null ? '—' : hhsRatioPct.toFixed(1) + '%' }} · Target: 35%
+          </div>
         </div>
       </div>
 
@@ -565,6 +567,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
   filterMode: 'month' | 'quarter' | 'year' = 'month';
   selectedMonth = 10;
   selectedYear = 2026;
+  currentDayOfMonth = new Date().getDate();
 
   totalStaffCount = 0;
   chtCount = 0;
@@ -573,6 +576,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
   actualSales = 0;
   targetSales = 0;
   projectedSales = 0;
+  projectedSalesPercent = 0;
   salesPercent = 0;
 
   daNangSales = 0;
@@ -589,7 +593,11 @@ export class DashboardComponent implements OnInit, AfterViewInit {
   targetHHS = 0;
   projectedHHS = 0;
   hhsPercent = 0;
-  hhsRatioPct: number | null = null;
+
+  get hhsRatioPct(): number | null {
+    if (this.actualSales <= 0) return null;
+    return Math.round((this.actualHHS * 1000 / this.actualSales) * 1000) / 10;
+  }
 
   daNangHHS = 0;
   daNangHHSPct = 0;
@@ -623,6 +631,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
 
   shopList: DashboardShopItem[] = [];
   shopsWithPlanData = 0;
+  shopsWithSalesData = 0;
 
   get daNangShopCount(): number {
     return this.shopList.filter(shop => shop.province === 'ĐÀ').length;
@@ -687,6 +696,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
         : 'Vui lòng thử lại hoặc đăng nhập lại Upharma.';
       this.shopList = [];
       this.shopsWithPlanData = 0;
+      this.shopsWithSalesData = 0;
     } finally {
       this.isLoading = false;
       this.cdr.detectChanges();
@@ -713,7 +723,10 @@ export class DashboardComponent implements OnInit, AfterViewInit {
   private applyDashboardResult(res: DashboardOverviewResult) {
     this.actualSales = res.actualSales;
     this.targetSales = res.targetSales;
-    this.projectedSales = res.projectedSales;
+    this.projectedSales = Math.round((res.actualSales / this.currentDayOfMonth) * 30);
+    this.projectedSalesPercent = res.targetSales > 0
+      ? Math.round((this.projectedSales / res.targetSales) * 100)
+      : 0;
     this.salesPercent = res.salesPercent;
     this.daNangSales = res.daNangSales;
     this.daNangSalesPct = res.daNangSalesPct;
@@ -728,7 +741,6 @@ export class DashboardComponent implements OnInit, AfterViewInit {
     this.targetHHS = res.targetHHS;
     this.projectedHHS = res.projectedHHS;
     this.hhsPercent = res.hhsPercent;
-    this.hhsRatioPct = res.hhsRatioPct;
     this.daNangHHS = res.daNangHHS;
     this.daNangHHSPct = res.daNangHHSPct;
     this.daNangHHSTarget = res.daNangHHSTarget;
@@ -742,17 +754,25 @@ export class DashboardComponent implements OnInit, AfterViewInit {
     this.totalInvoices = res.totalInvoices;
     this.avgInvoiceValue = res.avgInvoiceValue;
     this.itemsPerInvoice = res.itemsPerInvoice;
-    this.daNangProjectedSales = res.daNangProjectedSales;
+    this.daNangProjectedSales = Math.round((res.daNangSales / this.currentDayOfMonth) * 30);
     this.daNangProjectedHHS = res.daNangProjectedHHS;
     this.daNangHHSRatioPct = res.daNangHHSRatioPct;
     this.daNangInvoices = res.daNangInvoices;
-    this.hueProjectedSales = res.hueProjectedSales;
+    this.hueProjectedSales = Math.round((res.hueSales / this.currentDayOfMonth) * 30);
     this.hueProjectedHHS = res.hueProjectedHHS;
     this.hueHHSRatioPct = res.hueHHSRatioPct;
     this.hueInvoices = res.hueInvoices;
     this.otherInvoices = res.otherInvoices;
     this.shopsWithPlanData = res.shopsWithPlanData;
-    this.shopList = res.shopList;
+    this.shopsWithSalesData = res.shopsWithSalesData;
+    this.shopList = res.shopList.map(shop => {
+      const projectedSales = Math.round((shop.actual / this.currentDayOfMonth) * 30);
+      return {
+        ...shop,
+        projectedSales,
+        pctDK: shop.target > 0 ? Math.round((projectedSales / shop.target) * 100) : 0,
+      };
+    });
   }
 
   sortShopsBy(field: keyof DashboardShopItem) {

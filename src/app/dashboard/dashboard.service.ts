@@ -62,6 +62,7 @@ export interface DashboardOverviewResult {
   hueHHSRatioPct: number;
   hueInvoices: number;
   shopsWithPlanData: number;
+  shopsWithSalesData: number;
   shopList: DashboardShopItem[];
 }
 
@@ -72,14 +73,6 @@ export interface ManagedEmployeeSummary {
 }
 
 type ManagedEmployee = Record<string, unknown>;
-type EmployeePlan = Record<string, unknown>;
-
-interface HhsTotals {
-  actual: number;
-  target: number;
-  salesActual: number;
-  hasPlanData: boolean;
-}
 
 const KNOWN_SHOP_REGION_BY_CODE: Record<string, string> = {
   SHOP0010: 'ĐÀ',
@@ -99,7 +92,6 @@ const KNOWN_SHOP_REGION_BY_CODE: Record<string, string> = {
   providedIn: 'root'
 })
 export class DashboardService {
-  private dashboardCache = new Map<string, DashboardOverviewResult>();
   private inFlightFetch = new Map<string, Promise<DashboardOverviewResult>>();
 
   constructor(private upharma: UpharmaService) {}
@@ -118,21 +110,10 @@ export class DashboardService {
     const results: PromiseSettledResult<ManagedEmployee[]>[] = [];
     for (const shop of uniqueShops) {
       try {
-        const response = await this.upharma.callEndpoint<{ EmployeeLst?: ManagedEmployee[] }>(
-          '/Employee/GetEmployeeOfShop',
-          {
-            uPharmaID: session.UserInfo.uPharmaID,
-            Token: session.Token,
-            ShopCode: shop.ShopCode
-          },
-          { cache: true }
-        );
-        if (!Array.isArray(response?.EmployeeLst)) {
-          throw new Error(`Invalid employee response for ${shop.ShopCode}.`);
-        }
+        const salesmen = await this.upharma.getSalesmanByShop(shop.ShopCode);
         results.push({
           status: 'fulfilled',
-          value: response.EmployeeLst.map((employee) => ({
+          value: salesmen.map((employee) => ({
           ...employee,
           ShopCode: employee['ShopCode'] || shop.ShopCode
           }))
@@ -181,7 +162,7 @@ export class DashboardService {
   }
 
   public clearCache() {
-    this.dashboardCache.clear();
+    this.upharma.clearResourceCache();
   }
 
   public getDashboardShops(shops: ShopInfo[] = this.upharma.ensureLogin().UserInfo.ShopLst) {
@@ -205,7 +186,7 @@ export class DashboardService {
 
   private calculateHhsRatioPct(hhsAmount: number, salesAmount: number): number {
     return salesAmount > 0
-      ? Math.round((hhsAmount / salesAmount) * 1000) / 10
+      ? Math.round((hhsAmount * 1000 / salesAmount) * 1000) / 10
       : 0;
   }
 
@@ -259,10 +240,6 @@ export class DashboardService {
     const scopeKey = dashboardShops.map(shop => shop.code).sort().join(',');
     const cacheKey = `${session.UserInfo.uPharmaID}_${scopeKey}_${filterMode}_${selectedMonth}_${selectedYear}`;
 
-    if (!forceRefresh && this.dashboardCache.has(cacheKey)) {
-      return this.dashboardCache.get(cacheKey)!;
-    }
-
     if (this.inFlightFetch.has(cacheKey)) {
       return this.inFlightFetch.get(cacheKey)!;
     }
@@ -312,23 +289,13 @@ export class DashboardService {
           throw new Error(`${reason} (${shopCodes.length - failedShops.length}/${shopCodes.length} nhà thuốc). Lỗi: ${failedShops.join(', ')}.`);
         }
 
-        const targetMonths = this.getSelectedMonths(filterMode, selectedMonth);
-        const employeeHhsFallbacks = await this.fetchEmployeeHhsFallbacks(
-          shopPlansMap,
-          dashboardShops,
-          targetMonths,
-          selectedYear,
-          session
-        );
         const result = this.processApiData(
           shopPlansMap,
-          employeeHhsFallbacks,
           filterMode,
           selectedMonth,
           selectedYear,
           dashboardShops
         );
-        this.dashboardCache.set(cacheKey, result);
         return result;
       } finally {
         this.inFlightFetch.delete(cacheKey);
@@ -373,76 +340,8 @@ export class DashboardService {
     });
   }
 
-  private async fetchEmployeeHhsFallbacks(
-    shopPlansMap: Map<string, ShopPlanApiItem[]>,
-    dashboardShops: ReturnType<DashboardService['getDashboardShops']>,
-    months: number[],
-    year: number,
-    session: ReturnType<UpharmaService['ensureLogin']>
-  ): Promise<Map<string, HhsTotals>> {
-    const shopsNeedingFallback = dashboardShops.map((shop) => ({
-      shop,
-      missingMonths: months.flatMap((month) => {
-        const plans = this.findItemsForPeriod(shopPlansMap.get(shop.code) || [], [month], year);
-        const hasPlan = plans.length > 0;
-        const sales = plans.reduce((sum, item) => sum + (Number(item.AmountR) || 0), 0);
-        const actual = plans.reduce((sum, item) =>
-          sum + (Number(item.PointSales01R) || Number(item.PointRatioR) || 0), 0);
-        const target = plans.reduce((sum, item) =>
-          sum + (Number(item.PointSales01) || Number(item.QuantityHHS) || 0), 0);
-        return !hasPlan || sales === 0 || actual === 0 || target === 0
-          ? [{
-              month,
-              missingSalesActual: !hasPlan || sales === 0,
-              missingActual: actual === 0,
-              missingTarget: target === 0
-            }]
-          : [];
-      })
-    })).filter(({ missingMonths }) => missingMonths.length > 0);
-    const fallbacks = new Map<string, HhsTotals>();
-
-    for (let index = 0; index < shopsNeedingFallback.length; index += 2) {
-      const batch = shopsNeedingFallback.slice(index, index + 2);
-      const results = await Promise.all(batch.map(async ({ shop, missingMonths }) => {
-        const totals: HhsTotals = { actual: 0, target: 0, salesActual: 0, hasPlanData: false };
-        for (const { month, missingSalesActual, missingActual, missingTarget } of missingMonths) {
-          try {
-            const response = await this.upharma.callEndpoint<{ EmployeePlanLst?: EmployeePlan[] }>(
-              '/EmployeePlan/GetEmployeePlanLst',
-              {
-                Month: month,
-                Year: year,
-                Token: session.Token,
-                uPharmaID: String(session.UserInfo.uPharmaID),
-                ShopCode: shop.code
-              }
-            );
-            if (!Array.isArray(response?.EmployeePlanLst)) {
-              throw new Error('Phản hồi danh sách chỉ tiêu nhân viên không hợp lệ.');
-            }
-            if (response.EmployeePlanLst.length > 0) totals.hasPlanData = true;
-            response.EmployeePlanLst.forEach((employeePlan) => {
-              if (missingSalesActual) totals.salesActual += Number(employeePlan['AmountR']) || 0;
-              if (missingActual) totals.actual += Number(employeePlan['PointRatioR']) || 0;
-              if (missingTarget) totals.target += Number(employeePlan['PointRatio']) || 0;
-            });
-          } catch (error) {
-            const reason = error instanceof Error ? error.message : 'Lỗi không xác định';
-            throw new Error(`Không tải được HHS nhân viên của ${shop.code} tháng ${month}/${year}: ${reason}`);
-          }
-        }
-        return [shop.code, totals] as const;
-      }));
-      results.forEach(([shopCode, totals]) => fallbacks.set(shopCode, totals));
-    }
-
-    return fallbacks;
-  }
-
   private processApiData(
     shopPlansMap: Map<string, ShopPlanApiItem[]>,
-    employeeHhsFallbacks: Map<string, HhsTotals>,
     filterMode: 'month' | 'quarter' | 'year',
     selectedMonth: number,
     selectedYear: number,
@@ -470,9 +369,9 @@ export class DashboardService {
     let otherInvoices = 0;
     let totalItems = 0;
     let shopsWithPlanData = 0;
+    let shopsWithSalesData = 0;
 
     const targetMonths = this.getSelectedMonths(filterMode, selectedMonth);
-
     const shopList: DashboardShopItem[] = [];
 
     dashboardShops.forEach((shopDef) => {
@@ -497,13 +396,8 @@ export class DashboardService {
           statusApproved = true;
         }
       });
-      const employeeHhs = employeeHhsFallbacks.get(shopDef.code);
-      if (employeeHhs) {
-        amtReal += employeeHhs.salesActual;
-        hhsTarget += employeeHhs.target;
-        hhsReal += employeeHhs.actual;
-      }
-      if (periodItems.length > 0 || employeeHhs?.hasPlanData) shopsWithPlanData++;
+      if (periodItems.length > 0) shopsWithPlanData++;
+      if (amtReal > 0) shopsWithSalesData++;
 
       const pctDS = amtTarget > 0 ? Math.round((amtReal / amtTarget) * 100) : 0;
       const projectedSales = amtReal;
@@ -574,7 +468,6 @@ export class DashboardService {
 
     const tbnPerShop = Number((actualSales / Math.max(dashboardShops.length, 1) / 30 / 1000000).toFixed(1));
     const avgInvoiceValue = totalInvoices > 0 ? Math.round(actualSales / totalInvoices) : 0;
-
     return {
       actualSales,
       targetSales,
@@ -617,6 +510,7 @@ export class DashboardService {
       hueHHSRatioPct: this.calculateHhsRatioPct(hueHHS, hueSales),
       hueInvoices,
       shopsWithPlanData,
+      shopsWithSalesData,
       shopList
     };
   }

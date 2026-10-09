@@ -8,6 +8,6 @@ export const environment = {
     UserName: "",
     Password: "",
   },
-  excludedShopCodes: ["SHOP0040"],
+  excludedShopCodes: ["SHOP0018", "SHOP0040"],
   firebaseDbUrl: "https://an-upharma-default-rtdb.firebaseio.com"
 };

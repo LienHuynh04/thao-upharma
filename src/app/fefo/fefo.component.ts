@@ -299,8 +299,7 @@ export class FefoComponent implements OnInit {
               Token: session?.Token,
               ShopCode: shop.ShopCode,
               _useFirebaseCache: true,
-            },
-            { cache: true }
+            }
           );
           const expanded = this.extractSalesArray(salesRes);
           return expanded.map((r) => ({

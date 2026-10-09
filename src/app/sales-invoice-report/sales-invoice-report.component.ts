@@ -28,13 +28,6 @@ interface EmployeeReportSummary {
   totalAmount: number;
 }
 
-interface SalesInvoiceReportCacheEntry {
-  savedAt: number;
-  shopCode: string;
-  dateKey: string;
-  items: SalesInvoiceReportItem[];
-}
-
 @Component({
   selector: "app-sales-invoice-report",
   standalone: true,
@@ -78,7 +71,7 @@ interface SalesInvoiceReportCacheEntry {
               </div>
             </div>
             <div class="col-md-2">
-              <button class="btn btn-primary w-100" type="button" [disabled]="loading || !selectedShopCode" (click)="loadData(true)">
+              <button class="btn btn-primary w-100" type="button" [disabled]="loading || !selectedShopCode" (click)="loadData()">
                 {{ loading ? "Đang tải..." : "Làm mới" }}
               </button>
             </div>
@@ -212,11 +205,8 @@ export class SalesInvoiceReportComponent implements OnInit {
   loading = false;
   hasLoaded = false;
   errorText = "";
-  reportCacheStatus = "";
   items: SalesInvoiceReportItem[] = [];
   private allItems: SalesInvoiceReportItem[] = [];
-  private readonly cacheStorageKeyPrefix = "upharma_sales_invoice_report_cache_v1";
-  private readonly cacheTtlMs = 24 * 60 * 60 * 1000;
 
   constructor(private readonly upharmaService: UpharmaService) {}
 
@@ -325,7 +315,7 @@ export class SalesInvoiceReportComponent implements OnInit {
     return item.rowKey;
   }
 
-  async loadData(forceRefresh = false): Promise<void> {
+  async loadData(): Promise<void> {
     if (!this.selectedShopCode) {
       this.items = [];
       return;
@@ -333,8 +323,6 @@ export class SalesInvoiceReportComponent implements OnInit {
 
     this.loading = true;
     this.errorText = "";
-    this.reportCacheStatus = "";
-
     try {
       const session = this.upharmaService.ensureLogin();
       const { start, end } = this.getRangeDates();
@@ -345,42 +333,26 @@ export class SalesInvoiceReportComponent implements OnInit {
         TimeEnd: this.formatDateTime(end),
         ShopCode: this.selectedShopCode,
       };
-      const cacheKey = this.getCacheKey(session.UserInfo.uPharmaID, this.selectedShopCode, end);
-      const cachedEntry = forceRefresh ? null : this.readCache(cacheKey);
-
-      if (cachedEntry) {
-        this.applyCachedItems(cachedEntry.items);
-        this.reportCacheStatus = `Đang hiển thị cache local lúc ${this.formatCacheTime(cachedEntry.savedAt)}.`;
-        this.loading = false;
-        return;
-      }
-
-      await this.refreshFromApi(payload, cacheKey, forceRefresh);
+      await this.refreshFromApi(payload);
     } catch (error) {
       this.errorText = error instanceof Error ? error.message : String(error);
       this.allItems = [];
       this.items = [];
-      this.reportCacheStatus = "";
     } finally {
       this.loading = false;
       this.hasLoaded = true;
     }
   }
 
-  private async refreshFromApi(payload: RawRecord, cacheKey: string, forceRefresh: boolean): Promise<void> {
-    const response = await this.upharmaService.callEndpoint<RawRecord>(this.endpoint, payload, {
-      cache: true,
-      forceRefresh,
-    });
+  private async refreshFromApi(payload: RawRecord): Promise<void> {
+    const response = await this.upharmaService.callEndpoint<RawRecord>(this.endpoint, payload);
 
     const rawRows = this.extractRows(response);
     const normalizedItems = rawRows
       .map((row, index) => this.normalizeRow(row, index))
       .filter((item) => Boolean(item.employeeName || item.productCode));
 
-    this.applyCachedItems(normalizedItems);
-    this.writeCache(cacheKey, normalizedItems);
-    this.reportCacheStatus = `Đã cập nhật cache local lúc ${this.formatCacheTime(Date.now())}.`;
+    this.applyItems(normalizedItems);
   }
 
   private normalizeRow(row: RawRecord, index: number): SalesInvoiceReportItem {
@@ -407,7 +379,7 @@ export class SalesInvoiceReportComponent implements OnInit {
     this.items = this.allItems.filter((item) => this.matchesFilters(item, this.selectedRange));
   }
 
-  private applyCachedItems(items: SalesInvoiceReportItem[]): void {
+  private applyItems(items: SalesInvoiceReportItem[]): void {
     this.allItems = items;
     if (!this.employeeOptions.includes(this.selectedEmployeeName)) {
       this.selectedEmployeeName = "";
@@ -595,65 +567,4 @@ export class SalesInvoiceReportComponent implements OnInit {
     ].join("-") + ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   }
 
-  private getCacheKey(userId: number, shopCode: string, endDate: Date): string {
-    const dateKey = [
-      endDate.getFullYear(),
-      String(endDate.getMonth() + 1).padStart(2, "0"),
-      String(endDate.getDate()).padStart(2, "0"),
-    ].join("-");
-
-    return `${this.cacheStorageKeyPrefix}:${userId}:${shopCode}:${dateKey}`;
-  }
-
-  private readCache(cacheKey: string): SalesInvoiceReportCacheEntry | null {
-    try {
-      const raw = localStorage.getItem(cacheKey);
-      if (!raw) {
-        return null;
-      }
-
-      const entry = JSON.parse(raw) as SalesInvoiceReportCacheEntry;
-      if (!entry.savedAt || !Array.isArray(entry.items) || Date.now() - entry.savedAt > this.cacheTtlMs) {
-        localStorage.removeItem(cacheKey);
-        return null;
-      }
-
-      return entry;
-    } catch {
-      localStorage.removeItem(cacheKey);
-      return null;
-    }
-  }
-
-  private writeCache(cacheKey: string, items: SalesInvoiceReportItem[]): void {
-    try {
-      const entry: SalesInvoiceReportCacheEntry = {
-        savedAt: Date.now(),
-        shopCode: this.selectedShopCode,
-        dateKey: this.getTodayKey(),
-        items,
-      };
-      localStorage.setItem(cacheKey, JSON.stringify(entry));
-    } catch {
-      // Cache is optional; ignore storage failures.
-    }
-  }
-
-  private getTodayKey(): string {
-    const now = new Date();
-    return [
-      now.getFullYear(),
-      String(now.getMonth() + 1).padStart(2, "0"),
-      String(now.getDate()).padStart(2, "0"),
-    ].join("-");
-  }
-
-  private formatCacheTime(timestamp: number): string {
-    return new Intl.DateTimeFormat("vi-VN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      day: "2-digit",
-      month: "2-digit",
-    }).format(new Date(timestamp));
-  }
 }

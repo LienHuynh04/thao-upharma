@@ -299,7 +299,7 @@ export class InventorySystemTestComponent implements OnInit {
       const response = await this.upharmaService.callEndpoint<any>(
         `/LocalStore/${this.selectedApi}`,
         payload,
-        { cache: false }
+        {}
       );
       this.elapsedMs = Math.round(performance.now() - t0);
       this.loadingProgress = 85;

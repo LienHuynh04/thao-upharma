@@ -184,7 +184,7 @@ export class CheckInventoryTestComponent implements OnInit {
       this.requestPayload = JSON.stringify(payload, null, 2);
       this.loadingProgress = 50;
 
-      const response = await this.upharmaService.callEndpoint<unknown>("/WEB/CheckInventory", payload, { cache: false });
+      const response = await this.upharmaService.callEndpoint<unknown>("/WEB/CheckInventory", payload);
       this.loadingProgress = 90;
       this.responseText = JSON.stringify(response, null, 2);
       this.loadingProgress = 100;

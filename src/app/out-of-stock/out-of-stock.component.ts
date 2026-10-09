@@ -29,12 +29,6 @@ interface OutOfStockItem {
   expanded: boolean;
 }
 
-interface OutOfStockCacheEntry {
-  cacheKey: string;
-  rows: OutOfStockItem[];
-  savedAt: number;
-}
-
 type OutOfStockTextFilterKey = "productName" | "productCode" | "status" | "quantityText" | "unit";
 
 @Component({
@@ -543,12 +537,12 @@ export class OutOfStockComponent implements OnInit {
           TimeStart: timeStart,
           TimeEnd: timeEnd,
           _useFirebaseKeyProducts: false,
-        }, { cache: true, forceRefresh }),
+        }, { forceRefresh }),
         this.upharmaService.callEndpoint<unknown>("/SalesInvoice/GetStableConsumptionCalculated", {
           uPharmaID: session.UserInfo.uPharmaID,
           Token: session.Token,
           ShopLst: shopCode,
-        }, { cache: true, forceRefresh })
+        }, { forceRefresh })
       ]);
 
       const rawSales = this.extractArray(salesRes);
@@ -729,7 +723,6 @@ export class OutOfStockComponent implements OnInit {
   }
 
   private async loadShop(shopCode: string, forceReload = false): Promise<void> {
-    const session = this.upharmaService.ensureLogin();
     const shop = this.shops.find((item) => item.ShopCode === shopCode);
 
     if (!shop) {
@@ -749,29 +742,11 @@ export class OutOfStockComponent implements OnInit {
       return;
     }
 
-    const cacheKey = this.getCacheKey(shop.ShopCode, session.UserInfo.uPharmaID);
-
-    if (!forceReload) {
-      const cachedData = await this.readOutStockCache(cacheKey);
-
-      if (cachedData) {
-        this.applyShopRows(shop.ShopCode, cachedData.rows);
-        this.loadedShopKeys.add(loadedShopKey);
-        this.outStockCacheStatus = `Đang hiển thị dữ liệu đã lưu lúc ${this.formatCacheTime(cachedData.savedAt)}. Hệ thống đang cập nhật dữ liệu mới...`;
-        void this.loadStarProductsForShop(shop.ShopCode);
-        void this.refreshPlannedStatusForShop(shop.ShopCode);
-        void this.refreshActiveShopFromApi(shop, cacheKey, true);
-        return;
-      }
-    }
-
-    await this.refreshActiveShopFromApi(shop, cacheKey, false, forceReload);
+    await this.refreshActiveShopFromApi(shop, forceReload);
   }
 
   private async refreshActiveShopFromApi(
     shop: ShopInfo,
-    cacheKey: string,
-    runInBackground: boolean,
     forceRefresh = false,
   ): Promise<void> {
     const session = this.upharmaService.ensureLogin();
@@ -783,14 +758,9 @@ export class OutOfStockComponent implements OnInit {
 
     this.loadingShopKeys.add(loadedShopKey);
 
-    if (runInBackground) {
-      this.outStockRefreshing = true;
-      this.loadingProgress = Math.max(this.loadingProgress, 30);
-    } else {
-      this.outStockRefreshing = true;
-      this.loadingProgress = 15;
-      this.outStockCacheStatus = "Đang lấy dữ liệu hàng đã hết cho shop đang xem...";
-    }
+    this.outStockRefreshing = true;
+    this.loadingProgress = 15;
+    this.outStockCacheStatus = "Đang tải dữ liệu hàng đã hết cho shop đang xem...";
 
     this.errorText = "";
 
@@ -801,7 +771,6 @@ export class OutOfStockComponent implements OnInit {
         ShopLst: shop.ShopCode,
       };
       const response = await this.upharmaService.callEndpoint<unknown>(this.endpoint, payload, {
-        cache: true,
         forceRefresh,
       });
       this.loadingProgress = 70;
@@ -820,17 +789,12 @@ export class OutOfStockComponent implements OnInit {
 
       this.applyShopRows(shop.ShopCode, shopRows);
       this.loadedShopKeys.add(this.getLoadedShopKey(shop.ShopCode));
-      await this.writeOutStockCache({
-        cacheKey,
-        rows: shopRows,
-        savedAt: Date.now(),
-      });
-      this.outStockCacheStatus = `Dữ liệu hàng đã hết đã cập nhật lúc ${this.formatCacheTime(Date.now())}.`;
+      this.outStockCacheStatus = "Dữ liệu hàng đã hết đã được tải mới.";
       this.loadingProgress = 100;
     } catch (error) {
       this.errorText = error instanceof Error ? error.message : String(error);
       if (this.rows.some((row) => row.shopCode === shop.ShopCode)) {
-        this.outStockCacheStatus = "Chưa cập nhật được dữ liệu mới, vẫn đang hiển thị dữ liệu đã lưu.";
+        this.outStockCacheStatus = "Không thể tải dữ liệu hàng đã hết mới.";
       }
       this.loadingProgress = 100;
     } finally {
@@ -861,78 +825,6 @@ export class OutOfStockComponent implements OnInit {
 
   private getLoadedShopKey(shopCode: string): string {
     return `${shopCode}:${this.timeStart}:${this.timeEnd}`;
-  }
-
-  private getCacheKey(shopCode: string, uPharmaID: number): string {
-    return [
-      "out-stock",
-      "v5",
-      uPharmaID,
-      shopCode,
-      this.timeStart,
-      this.timeEnd,
-    ].join("|");
-  }
-
-  private async readOutStockCache(cacheKey: string): Promise<OutOfStockCacheEntry | null> {
-    try {
-      const db = await this.openOutStockCacheDb();
-      const cachedData = await new Promise<OutOfStockCacheEntry | undefined>((resolve, reject) => {
-        const transaction = db.transaction("outStockCache", "readonly");
-        const request = transaction.objectStore("outStockCache").get(cacheKey);
-
-        request.onsuccess = () => resolve(request.result as OutOfStockCacheEntry | undefined);
-        request.onerror = () => reject(request.error);
-      });
-
-      db.close();
-      return cachedData || null;
-    } catch (error) {
-      console.warn("Không đọc được cache hàng hết kho:", error);
-      return null;
-    }
-  }
-
-  private async writeOutStockCache(cacheEntry: OutOfStockCacheEntry): Promise<void> {
-    try {
-      const db = await this.openOutStockCacheDb();
-
-      await new Promise<void>((resolve, reject) => {
-        const transaction = db.transaction("outStockCache", "readwrite");
-        const request = transaction.objectStore("outStockCache").put(cacheEntry);
-
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      });
-
-      db.close();
-    } catch (error) {
-      console.warn("Không lưu được cache hàng hết kho:", error);
-    }
-  }
-
-  private openOutStockCacheDb(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open("upharma-out-stock-cache", 1);
-
-      request.onupgradeneeded = () => {
-        const db = request.result;
-
-        if (!db.objectStoreNames.contains("outStockCache")) {
-          db.createObjectStore("outStockCache", { keyPath: "cacheKey" });
-        }
-      };
-
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  private formatCacheTime(value: number): string {
-    const date = new Date(value);
-    const pad = (part: number) => String(part).padStart(2, "0");
-
-    return `${pad(date.getHours())}:${pad(date.getMinutes())} ${pad(date.getDate())}-${pad(date.getMonth() + 1)}`;
   }
 
   private getInventoryAvailability(shopCode: string, forceRefresh: boolean): Promise<Set<string>> {
@@ -1002,7 +894,6 @@ export class OutOfStockComponent implements OnInit {
           Token: session.Token,
           ShopCode: shopCode,
         }, {
-          cache: false,
           forceRefresh,
         })
         .then((response) => {
@@ -1059,7 +950,6 @@ export class OutOfStockComponent implements OnInit {
           Token: session.Token,
           ShopCode: shopCode,
         }, {
-          cache: false,
           forceRefresh,
         }),
         this.upharmaService.callEndpoint<unknown>("/Product/GetItemLstWithFollower", {
@@ -1071,7 +961,6 @@ export class OutOfStockComponent implements OnInit {
           NumberRow: 0,
           PageNumber: 0,
         }, {
-          cache: false,
           forceRefresh,
         }),
       ])
@@ -1165,18 +1054,6 @@ export class OutOfStockComponent implements OnInit {
     }
 
     this.rows = updatedRows;
-
-    try {
-      const session = this.upharmaService.ensureLogin();
-      const cacheKey = this.getCacheKey(shopCode, session.UserInfo.uPharmaID);
-      await this.writeOutStockCache({
-        cacheKey,
-        rows: updatedRows.filter((row) => row.shopCode === shopCode),
-        savedAt: Date.now(),
-      });
-    } catch (error) {
-      console.warn("Không cập nhật được cache trạng thái dự trù mới:", error);
-    }
   }
 
   private getInventoryProductKey(shopCode: string, productName: string): string {

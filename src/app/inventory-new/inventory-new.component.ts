@@ -54,12 +54,6 @@ interface N8nWorkflow {
   steps: [string, string, string][];
 }
 
-interface InventoryCacheRecord {
-  cacheKey: string;
-  data: ResourceResponse;
-  savedAt: number;
-}
-
 @Component({
   selector: "app-inventory-new",
   standalone: true,
@@ -308,22 +302,10 @@ export class InventoryNewComponent implements OnInit {
 
   async loadInventory(): Promise<void> {
     try {
-      const sessionData = this.upharmaService.ensureLogin();
+      this.upharmaService.ensureLogin();
       this.shopList = this.upharmaService.getActiveShops();
 
-      const cacheKey = this.getInventoryCacheKey(sessionData.UserInfo.uPharmaID);
-      const cachedInventory = await this.readInventoryCache(cacheKey);
-
-      if (cachedInventory) {
-        this.applyInventoryData(cachedInventory.data);
-        this.inventoryCacheStatus = `Đang hiển thị dữ liệu đã lưu lúc ${this.formatCacheTime(cachedInventory.savedAt)}. Hệ thống đang cập nhật dữ liệu mới...`;
-        this.inventoryRefreshing = true;
-        this.inventoryRefreshProgress = 30;
-        void this.refreshInventoryFromApi(cacheKey, true);
-        return;
-      }
-
-      await this.refreshInventoryFromApi(cacheKey, false);
+      await this.refreshInventoryFromApi();
     } catch (error) {
       console.error("Không thể tải dữ liệu tồn kho:", error);
       this.loadStaticInventory();
@@ -444,30 +426,21 @@ export class InventoryNewComponent implements OnInit {
     this.recomputeAll();
   }
 
-  private async refreshInventoryFromApi(cacheKey: string, runInBackground: boolean): Promise<void> {
-    if (runInBackground) {
-      this.inventoryCacheStatus = this.inventoryCacheStatus || "Đang cập nhật dữ liệu tồn kho mới...";
-      this.inventoryRefreshing = true;
-      this.inventoryRefreshProgress = Math.max(this.inventoryRefreshProgress, 30);
-    } else {
-      this.startLoading("inventory", "Đang lấy dữ liệu tồn kho...");
-      this.inventoryCacheStatus = "";
-      this.inventoryRefreshing = true;
-      this.inventoryRefreshProgress = 15;
-    }
+  private async refreshInventoryFromApi(): Promise<void> {
+    this.startLoading("inventory", "Đang lấy dữ liệu tồn kho...");
+    this.inventoryCacheStatus = "Đang tải dữ liệu tồn kho...";
+    this.inventoryRefreshing = true;
+    this.inventoryRefreshProgress = 15;
 
     try {
       this.inventoryRefreshProgress = Math.max(this.inventoryRefreshProgress, 65);
       
-      if (!runInBackground) {
-        this.normalizedRows = [];
-        this.recomputeAll();
-      }
+      this.normalizedRows = [];
+      this.recomputeAll();
 
       const inventoryData = await this.upharmaService.loadInventoryResource({
         forceRefresh: true,
         onShopLoaded: (shopCode, shopData) => {
-          if (runInBackground) return;
           const shopName = this.shopList.find(s => s.ShopCode === shopCode)?.ShopName || shopCode;
           const mapped = shopData.map((row) => ({
             ...row,
@@ -480,14 +453,9 @@ export class InventoryNewComponent implements OnInit {
         }
       });
       this.applyInventoryData(inventoryData);
-      await this.writeInventoryCache({
-        cacheKey,
-        data: inventoryData,
-        savedAt: Date.now(),
-      });
       this.inventoryRefreshing = false;
       this.inventoryRefreshProgress = 100;
-      this.inventoryCacheStatus = `Dữ liệu tồn kho đã cập nhật lúc ${this.formatCacheTime(Date.now())}.`;
+      this.inventoryCacheStatus = "Dữ liệu tồn kho đã được tải mới.";
 
       const failedShops = Object.values(this.remoteDatasets).flatMap((resource) => resource?.failedShops || []);
       if (failedShops.length) {
@@ -503,11 +471,9 @@ export class InventoryNewComponent implements OnInit {
 
       this.inventoryRefreshing = false;
       this.inventoryRefreshProgress = 100;
-      this.inventoryCacheStatus = "Chưa cập nhật được dữ liệu mới, vẫn đang hiển thị dữ liệu đã lưu.";
+      this.inventoryCacheStatus = "Không thể tải dữ liệu tồn kho mới.";
     } finally {
-      if (!runInBackground) {
-        this.stopLoading("inventory");
-      }
+      this.stopLoading("inventory");
     }
   }
 
@@ -544,70 +510,6 @@ export class InventoryNewComponent implements OnInit {
     }
 
     return this.shopList[0]?.ShopCode || "";
-  }
-
-  private getInventoryCacheKey(userId: number): string {
-    const shopCodes = this.shopList.map((shop) => shop.ShopCode).join(",");
-
-    return `inventory_new:${userId}:${shopCodes}:v1`;
-  }
-
-  private async readInventoryCache(cacheKey: string): Promise<InventoryCacheRecord | null> {
-    try {
-      const db = await this.openInventoryCacheDb();
-
-      return await new Promise<InventoryCacheRecord | null>((resolve, reject) => {
-        const transaction = db.transaction("inventory", "readonly");
-        const request = transaction.objectStore("inventory").get(cacheKey);
-
-        request.onsuccess = () => resolve((request.result as InventoryCacheRecord | undefined) || null);
-        request.onerror = () => reject(request.error);
-      });
-    } catch (error) {
-      console.warn("Không đọc được cache tồn kho:", error);
-      return null;
-    }
-  }
-
-  private async writeInventoryCache(record: InventoryCacheRecord): Promise<void> {
-    try {
-      const db = await this.openInventoryCacheDb();
-
-      await new Promise<void>((resolve, reject) => {
-        const transaction = db.transaction("inventory", "readwrite");
-        const request = transaction.objectStore("inventory").put(record);
-
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-      });
-    } catch (error) {
-      console.warn("Không lưu được cache tồn kho:", error);
-    }
-  }
-
-  private openInventoryCacheDb(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open("upharma-cache", 1);
-
-      request.onupgradeneeded = () => {
-        const db = request.result;
-
-        if (!db.objectStoreNames.contains("inventory")) {
-          db.createObjectStore("inventory", { keyPath: "cacheKey" });
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  private formatCacheTime(timestamp: number): string {
-    return new Intl.DateTimeFormat("vi-VN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      day: "2-digit",
-      month: "2-digit",
-    }).format(new Date(timestamp));
   }
 
   private recomputeAll(): void {

@@ -11,7 +11,6 @@ export interface EmployeeListItem {
   shopCode: string;
   province: string;
   startDate: string;
-  level: string;
   resigned: string;
 }
 
@@ -96,16 +95,14 @@ export interface EmployeeListItem {
                 <th class="py-3 px-3 text-secondary fw-bold text-center">Mã NT</th>
                 <th class="py-3 px-3 text-secondary fw-bold">Tỉnh</th>
                 <th class="py-3 px-3 text-secondary fw-bold text-center">Ngày nhận việc</th>
-                <th class="py-3 px-3 text-secondary fw-bold text-center">Bậc NV</th>
-                <th class="py-3 px-3 text-secondary fw-bold text-center">Nghỉ việc</th>
                 <th class="py-3 px-3 text-secondary fw-bold text-center" style="width: 90px;"></th>
               </tr>
             </thead>
             <tbody>
               @if (isLoading) {
-                <tr><td colspan="9" class="text-center text-secondary py-4">Đang tải danh sách nhân sự...</td></tr>
+                <tr><td colspan="7" class="text-center text-secondary py-4">Đang tải danh sách nhân sự...</td></tr>
               } @else if (displayedEmployees.length === 0) {
-                <tr><td colspan="9" class="text-center text-secondary py-4">Không có dữ liệu nhân sự.</td></tr>
+                <tr><td colspan="7" class="text-center text-secondary py-4">Không có dữ liệu nhân sự.</td></tr>
               } @else {
                 @for (emp of displayedEmployees; track emp.code) {
                 <tr style="border-bottom: 1px solid #f1f5f9;">
@@ -119,12 +116,9 @@ export interface EmployeeListItem {
                   <td class="px-3 text-center text-muted" style="white-space: nowrap !important;">{{ emp.shopCode || '—' }}</td>
                   <td class="px-3 fw-semibold text-dark">{{ emp.province }}</td>
                   <td class="px-3 text-center text-muted" style="white-space: nowrap !important;">{{ emp.startDate || '—' }}</td>
-                  <td class="px-3 text-center text-muted" style="white-space: nowrap !important;">{{ emp.level || '—' }}</td>
-                  <td class="px-3 text-center text-muted" style="white-space: nowrap !important;">{{ emp.resigned || '—' }}</td>
                   <td class="px-3 text-center" style="white-space: nowrap !important;">
                     <div class="d-flex justify-content-center gap-2" style="font-size: 12px; font-weight: 700;">
-                      <a href="javascript:void(0)" class="text-decoration-none" style="color: #059669;" (click)="editEmployee(emp)">Sửa</a>
-                      <a href="javascript:void(0)" class="text-decoration-none" style="color: #ef4444;" (click)="deleteEmployee(emp)">Xoá</a>
+                      <a href="javascript:void(0)" class="text-decoration-none" style="color: #64748b;" (click)="hideEmployee(emp)">Ẩn</a>
                     </div>
                   </td>
                 </tr>
@@ -174,14 +168,6 @@ export interface EmployeeListItem {
                   }
                 </select>
               </div>
-              <div class="mb-3">
-                <label class="form-label fw-semibold">Bậc NV</label>
-                <select class="form-select rounded-3" [(ngModel)]="newEmp.level">
-                  <option value="Bậc 1">Bậc 1</option>
-                  <option value="Bậc 2">Bậc 2</option>
-                  <option value="Bậc 3">Bậc 3</option>
-                </select>
-              </div>
             </div>
             <div class="modal-footer border-top-0 pt-0">
               <button type="button" class="btn btn-light rounded-3 fw-bold" (click)="closeModal()">Hủy</button>
@@ -224,7 +210,6 @@ export class NhanSuComponent implements OnInit {
     shopCode: 'SHOP0010',
     province: 'Đà Nẵng',
     startDate: '01/10/2026',
-    level: 'Bậc 1',
     resigned: 'Đang làm'
   };
 
@@ -258,24 +243,15 @@ export class NhanSuComponent implements OnInit {
     }
   }
 
-  // 1. Calling POST /Employee/GetEmployeeOfShop
+  // Load sales staff assigned to the selected shop.
   async loadEmployeeOfShop(shopCode: string) {
     this.isLoading = true;
     this.loadError = '';
     this.employees = [];
     try {
-      const session = this.upharma.ensureLogin();
       const shop = this.managedShops.find(item => item.ShopCode === shopCode);
-      const res = await this.upharma.callEndpoint<any>('/Employee/GetEmployeeOfShop', {
-        uPharmaID: session.UserInfo.uPharmaID,
-        Token: session.Token,
-        ShopCode: shopCode
-      }, { cache: true });
-
-      if (!Array.isArray(res?.EmployeeLst)) {
-        throw new Error(`Invalid employee response for ${shopCode}.`);
-      }
-      this.employees = res.EmployeeLst.map((item: any) => this.mapEmployee(item, shopCode, shop));
+      const salesmen = await this.upharma.getSalesmanByShop(shopCode);
+      this.employees = salesmen.map(item => this.mapEmployee(item, shopCode, shop));
     } catch (e) {
       console.error(`Failed to load employees for ${shopCode}:`, e);
       this.loadError = 'Không tải được danh sách nhân sự. Vui lòng thử lại.';
@@ -285,7 +261,7 @@ export class NhanSuComponent implements OnInit {
     }
   }
 
-  // 2. Main Workflow: Calling POST /Employee/GetEmployeeInfoLst & POST /User/GetUserInfoByID & POST /Organization/GetUserOrganizationLst
+  // Load sales staff for all shops managed by the signed-in user.
   async loadEmployeesWorkflow() {
     this.isLoading = true;
     this.loadError = '';
@@ -324,17 +300,10 @@ export class NhanSuComponent implements OnInit {
       const results: PromiseSettledResult<EmployeeListItem[]>[] = [];
       for (const shop of this.managedShops) {
         try {
-          const res = await this.upharma.callEndpoint<any>('/Employee/GetEmployeeOfShop', {
-            uPharmaID: session.UserInfo.uPharmaID,
-            Token: session.Token,
-            ShopCode: shop.ShopCode
-          }, { cache: true });
-          if (!Array.isArray(res?.EmployeeLst)) {
-            throw new Error(`Invalid employee response for ${shop.ShopCode}.`);
-          }
+          const salesmen = await this.upharma.getSalesmanByShop(shop.ShopCode);
           results.push({
             status: 'fulfilled',
-            value: res.EmployeeLst.map((item: any) => this.mapEmployee(item, shop.ShopCode, shop))
+            value: salesmen.map(item => this.mapEmployee(item, shop.ShopCode, shop))
           });
         } catch (reason) {
           results.push({ status: 'rejected', reason });
@@ -373,20 +342,21 @@ export class NhanSuComponent implements OnInit {
   }
 
   private mapEmployee(item: any, shopCode: string, shop?: ShopInfo): EmployeeListItem {
-    const location = `${shop?.ShopAddress || ''} ${shop?.ShopName || ''}`.toLowerCase();
+    const apiLocation = `${item.City || ''} ${item.Address || ''} ${item.Region || ''}`.trim().toLowerCase();
+    const shopLocation = `${shop?.ShopAddress || ''} ${shop?.ShopName || ''}`.toLowerCase();
+    const location = apiLocation || shopLocation;
     const province = location.includes('huế') || /SHOP0(119|120|133)/.test(shopCode) ? 'Huế' : 'Đà Nẵng';
-    const isResigned = item.IsResign === true || Number(item.IsResign) === 1 || String(item.IsResign).toLowerCase() === 'true';
+    const startDate = String(item.TimeStartWork || item.StartDate || item.JoinDate || '');
 
     return {
-      id: item.EmployeeID || String(item.uPharmaID || item.EmployeeCode || item.EmCode || ''),
-      code: item.EmployeeCode || item.EmCode || item.uPharmaID || '—',
+      id: String(item.EmployeeID || item.uPharmaID || item.DocumentID || item.EmployeeCode || item.EmCode || ''),
+      code: item.uPharmaIDCode || item.EmployeeCode || item.EmCode || item.uPharmaID || '—',
       name: item.EmployeeName || item.FullName || 'Nhân viên',
-      role: item.RoleName || item.UTypeTxt || 'NVBH',
-      shopCode,
+      role: item.UserDefineName || item.RoleName || item.UTypeTxt || 'NVBH',
+      shopCode: item.ShopCode || shopCode,
       province,
-      startDate: item.StartDate || item.JoinDate || '—',
-      level: item.EmployeeLevel || item.LevelName || '—',
-      resigned: isResigned ? 'Đã nghỉ' : 'Đang làm'
+      startDate: startDate ? startDate.slice(0, 10) : '—',
+      resigned: item.IsResign === true || Number(item.IsResign) === 1 || String(item.IsResign).toLowerCase() === 'true' ? 'Đã nghỉ' : 'Đang làm'
     };
   }
 
@@ -429,8 +399,7 @@ export class NhanSuComponent implements OnInit {
             EmployeeCode: this.newEmp.code,
             FullName: this.newEmp.name,
             RoleName: this.newEmp.role,
-            ShopCode: this.newEmp.shopCode,
-            EmployeeLevel: this.newEmp.level
+            ShopCode: this.newEmp.shopCode
           });
         } catch (e) {
           console.warn('UpdateEmployeeInfo optional call');
@@ -463,8 +432,7 @@ export class NhanSuComponent implements OnInit {
             EmployeeCode: this.newEmp.code,
             FullName: this.newEmp.name,
             RoleName: this.newEmp.role,
-            ShopCode: this.newEmp.shopCode,
-            EmployeeLevel: this.newEmp.level
+            ShopCode: this.newEmp.shopCode
           });
         } catch (e) {
           console.warn('AddEmployeeInfo optional call');
@@ -484,7 +452,7 @@ export class NhanSuComponent implements OnInit {
     }
   }
 
-  deleteEmployee(emp: EmployeeListItem) {
+  hideEmployee(emp: EmployeeListItem) {
     const idx = this.employees.findIndex(e => e.code === emp.code);
     if (idx !== -1) {
       this.employees.splice(idx, 1);
@@ -502,7 +470,6 @@ export class NhanSuComponent implements OnInit {
       shopCode: 'SHOP0010',
       province: 'Đà Nẵng',
       startDate: '01/10/2026',
-      level: 'Bậc 1',
       resigned: 'Đang làm'
     };
   }

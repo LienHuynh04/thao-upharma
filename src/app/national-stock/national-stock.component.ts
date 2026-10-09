@@ -684,7 +684,7 @@ export class NationalStockComponent implements OnInit {
           uPharmaID: String(session.UserInfo?.uPharmaID ?? ""),
           _bypassFirebase: true,
         },
-        { cache: true, forceRefresh: force },
+        { forceRefresh: force },
       );
       const raw: any[] = Array.isArray(res)
         ? res

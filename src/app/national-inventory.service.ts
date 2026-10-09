@@ -126,7 +126,7 @@ export class NationalInventoryService {
       const salesSpeedRes = await this.upharma.callEndpoint<any>(
         "/SalesInvoice/GetReportSalesSpeed",
         {},
-        { cache: true, forceRefresh: options.forceRefresh }
+        { forceRefresh: options.forceRefresh }
       );
 
       const allRows: any[] = Array.isArray(salesSpeedRes)

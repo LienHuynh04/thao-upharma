@@ -115,26 +115,11 @@ interface ResourceConfig {
   payload: (shopCode?: string) => RawRecord;
 }
 
-interface CachedResource {
-  savedAt: number;
-  data: ResourceResponse;
-}
-
-interface CachedCall {
-  savedAt: number;
-  data: unknown;
-}
-
 export interface ResourceLoadOptions {
   onFresh?: (data: ResourceResponse) => void;
   onShopLoaded?: (shopCode: string, data: any[]) => void;
   forceRefresh?: boolean;
   shopCodes?: string[];
-}
-
-interface CachedFirebaseRows {
-  savedAt: number;
-  data: RawRecord[];
 }
 
 @Injectable({ providedIn: "root" })
@@ -143,21 +128,18 @@ export class UpharmaService {
 
   private readonly authStorageKey = "upharma_session";
   private readonly cacheStorageKeyPrefix = "upharma_cache_";
-  private readonly callCacheKeyPrefix = "upharma_call_";
-  private readonly cacheTtlMs = 5 * 60 * 1000;
-  private readonly callCacheTtlMs = 10 * 60 * 1000;
   private readonly shopConcurrency = 6;
   private readonly apiBaseUrl = environment.apiBaseUrl.replace(/\/$/, "");
   private readonly directApiBaseUrl = environment.directApiBaseUrl.replace(/\/$/, "");
   private readonly useBackendProxy = environment.useBackendProxy;
   private readonly inFlightResources = new Map<string, Promise<ResourceResponse>>();
-  private readonly inFlightCalls = new Map<string, Promise<unknown>>();
-  private readonly firebaseSalesSpeedCache = new Map<string, CachedFirebaseRows>();
   private readonly firebaseSalesSpeedInFlight = new Map<string, Promise<RawRecord[]>>();
   private sessionData: LoginResponse | null = null;
   private shopList: ShopInfo[] = [];
 
-  constructor(private readonly router: Router) {}
+  constructor(private readonly router: Router) {
+    this.clearResourceCache();
+  }
 
   async login(credentials: { UserName: string; Password: string }): Promise<LoginResponse> {
     if (!credentials.UserName || !credentials.Password) {
@@ -216,7 +198,7 @@ export class UpharmaService {
   async callEndpoint<T>(
     pathname: string,
     payload: RawRecord,
-    options: { cache?: boolean; forceRefresh?: boolean; onShopLoaded?: (shopCode: string, data: any[]) => void } = {},
+    options: { forceRefresh?: boolean; onShopLoaded?: (shopCode: string, data: any[]) => void } = {},
   ): Promise<T> {
     if (pathname.includes("GetShopsSummaryCalculated")) {
       const firebaseDbUrl = (environment as any).firebaseDbUrl;
@@ -234,7 +216,9 @@ export class UpharmaService {
 
     const isFirebaseTarget =
       !payload?.['_bypassFirebase'] &&
-      (pathname.includes("GetReportSalesSpeed") ||
+      (pathname.includes("GetShopPlanByTime") ||
+      pathname.includes("GetSalesmanByShop") ||
+      pathname.includes("GetReportSalesSpeed") ||
       pathname.includes("GetTransferOrderProcess") ||
       pathname.includes("GetProductOff") ||
       pathname.includes("GetItemLstWithFollower") ||
@@ -248,7 +232,11 @@ export class UpharmaService {
 
     if (isFirebaseTarget) {
       let resourceName = "";
-      if (pathname.includes("GetReportSalesSpeed")) {
+      if (pathname.includes("GetShopPlanByTime")) {
+        resourceName = "shop_plan";
+      } else if (pathname.includes("GetSalesmanByShop")) {
+        resourceName = "employees_detail";
+      } else if (pathname.includes("GetReportSalesSpeed")) {
         resourceName = "sales_speed";
       } else if (pathname.includes("GetStableConsumptionCalculated")) {
         resourceName = "stable_consumption_calculated";
@@ -326,12 +314,6 @@ export class UpharmaService {
           shopsToFetch.map(async (shop) => {
             try {
               const cacheKey = `${shop.ShopCode}:${resourceName}`;
-              const cached = options.forceRefresh ? undefined : this.firebaseSalesSpeedCache.get(cacheKey);
-              if (cached && Date.now() - cached.savedAt < this.callCacheTtlMs) {
-                shopsData.push(...cached.data);
-                return;
-              }
-
               let request = this.firebaseSalesSpeedInFlight.get(cacheKey);
               if (!request) {
                 request = (async () => {
@@ -356,9 +338,7 @@ export class UpharmaService {
                 })();
                 this.firebaseSalesSpeedInFlight.set(cacheKey, request);
               }
-
               const rows = await request;
-              this.firebaseSalesSpeedCache.set(cacheKey, { savedAt: Date.now(), data: rows });
               shopsData.push(...rows);
               if (typeof options.onShopLoaded === "function") {
                 options.onShopLoaded(shop.ShopCode, rows);
@@ -376,10 +356,13 @@ export class UpharmaService {
 
         const combined = {
           success: true,
+          RespCode: 0,
+          RespText: "OK",
           resource: resourceName,
           shops: shopsToFetch,
           failedShops,
           data: shopsData,
+          ShopPlanLst: shopsData,
           fetchedAt: new Date().toISOString(),
         };
 
@@ -404,39 +387,64 @@ export class UpharmaService {
     }
 
     const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
+    return this.request<T>(normalizedPath, payload);
+  }
 
-    if (!options.cache) {
-      return this.request<T>(normalizedPath, payload);
-    }
+  async getSalesmanByShop(shopCode: string): Promise<RawRecord[]> {
+    const session = this.ensureLogin();
+    const response = await this.callEndpoint<RawRecord>(
+      "/Organization/GetSalesmanByShop",
+      {
+        Token: session.Token,
+        uPharmaID: String(session.UserInfo.uPharmaID),
+        ShopCode: shopCode,
+      },
+    );
 
-    const cacheKey = this.getCallCacheKey(normalizedPath, payload);
+    const listKeys = [
+      "SalesmanLst",
+      "SalesmanByShopLst",
+      "SalesmanShopLst",
+      "EmployeeLst",
+      "EmployeeInfoLst",
+      "DataLst",
+      "ListData",
+      "Data",
+      "data",
+      "Rows",
+    ];
+    const queue: unknown[] = [response];
+    const visited = new Set<object>();
 
-    if (!options.forceRefresh) {
-      const cached = this.readCallCache(cacheKey);
+    while (queue.length > 0) {
+      const value = queue.shift();
+      if (!value || typeof value !== "object" || visited.has(value)) continue;
+      visited.add(value);
 
-      if (cached) {
-        return cached as T;
+      if (Array.isArray(value)) {
+        const records = value.filter(
+          (item): item is RawRecord => Boolean(item) && typeof item === "object" && !Array.isArray(item),
+        );
+        if (records.length === value.length) return records;
+        continue;
       }
+
+      const record = value as RawRecord;
+      for (const key of listKeys) {
+        const list = record[key];
+        if (Array.isArray(list)) {
+          const records = list.filter(
+            (item): item is RawRecord => Boolean(item) && typeof item === "object" && !Array.isArray(item),
+          );
+          if (records.length === list.length) return records;
+          throw new Error(`Invalid salesman list returned for ${shopCode}.`);
+        }
+      }
+
+      queue.push(...Object.values(record).filter((item) => item && typeof item === "object"));
     }
 
-    const pending = this.inFlightCalls.get(cacheKey);
-
-    if (pending) {
-      return pending as Promise<T>;
-    }
-
-    const request = this.request<T>(normalizedPath, payload)
-      .then((data) => {
-        this.writeCallCache(cacheKey, data);
-        return data;
-      })
-      .finally(() => {
-        this.inFlightCalls.delete(cacheKey);
-      });
-
-    this.inFlightCalls.set(cacheKey, request);
-
-  return request;
+    throw new Error(`No salesman list returned for ${shopCode}.`);
   }
 
   async loadShopPlanByTime(payload: RawRecord): Promise<ShopPlanApiResponse> {
@@ -514,7 +522,7 @@ export class UpharmaService {
 
     void this.runWithConcurrency(requests, async ({ payload }) => {
       try {
-        await this.callEndpoint("/SalesInvoice/GetReportSalesSpeed", payload, { cache: true });
+        await this.callEndpoint("/SalesInvoice/GetReportSalesSpeed", payload);
       } catch (error) {
         console.warn("Prefetch GetReportSalesSpeed thất bại:", error);
       }
@@ -645,21 +653,46 @@ export class UpharmaService {
   }
 
   clearResourceCache(): void {
-    this.firebaseSalesSpeedCache.clear();
     this.firebaseSalesSpeedInFlight.clear();
+    this.inFlightResources.clear();
+    const cachePrefixes = [
+      this.cacheStorageKeyPrefix,
+      "upharma_call_",
+      "upharma_sales_invoice_report_cache_v1",
+    ];
 
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith(this.cacheStorageKeyPrefix) || key.startsWith(this.callCacheKeyPrefix)) {
-        localStorage.removeItem(key);
+    if (typeof localStorage !== "undefined") {
+      for (const key of Object.keys(localStorage)) {
+        if (cachePrefixes.some((prefix) => key.startsWith(prefix))) {
+          localStorage.removeItem(key);
+        }
+      }
+    }
+
+    if (typeof indexedDB !== "undefined") {
+      for (const databaseName of ["upharma-cache", "upharma-out-stock-cache"]) {
+        const request = indexedDB.deleteDatabase(databaseName);
+        request.onerror = () => console.error(`Không xóa được IndexedDB ${databaseName}:`, request.error);
+        request.onblocked = () => console.warn(`Đang chờ đóng kết nối để xóa IndexedDB ${databaseName}.`);
       }
     }
   }
 
   private setSession(loginData: LoginResponse): void {
-    this.sessionData = loginData;
-    this.shopList = loginData.UserInfo.ShopLst.filter(
+    const filteredShopList = loginData.UserInfo.ShopLst.filter(
       (shop) => !environment.excludedShopCodes.includes(shop.ShopCode),
-    ).sort((firstShop, secondShop) => firstShop.ShopCode.localeCompare(secondShop.ShopCode, "vi"));
+    );
+    loginData = {
+      ...loginData,
+      UserInfo: {
+        ...loginData.UserInfo,
+        ShopLst: filteredShopList,
+      },
+    };
+    this.sessionData = loginData;
+    this.shopList = [...filteredShopList].sort(
+      (firstShop, secondShop) => firstShop.ShopCode.localeCompare(secondShop.ShopCode, "vi"),
+    );
 
     localStorage.setItem(
       this.authStorageKey,
@@ -810,21 +843,11 @@ export class UpharmaService {
       return this.requestBackendResource(resourceName, session);
     }
 
-    const cacheKey = this.getResourceCacheKey(resourceName, session);
-    const cached = options.forceRefresh ? null : this.readResourceCache(cacheKey);
-    const revalidate = this.dedupeResourceFetch(cacheKey, resourceName, session);
-
-    if (!cached) {
-      return revalidate;
-    }
-
-    if (options.onFresh) {
-      revalidate
-        .then((fresh) => options.onFresh?.(fresh))
-        .catch((error) => console.warn(`Không làm mới được API ${resourceName}:`, error));
-    }
-
-    return cached;
+    const shopCodes = this.shopList.map((shop) => shop.ShopCode).join(",");
+    const cacheKey = `${resourceName}_${session.UserInfo.uPharmaID}_${shopCodes}`;
+    const fresh = await this.dedupeResourceFetch(cacheKey, resourceName, session);
+    options.onFresh?.(fresh);
+    return fresh;
   }
 
   private dedupeResourceFetch(
@@ -839,10 +862,6 @@ export class UpharmaService {
     }
 
     const request = this.fetchResourceFromApi(resourceName, session)
-      .then((data) => {
-        this.writeResourceCache(cacheKey, data);
-        return data;
-      })
       .finally(() => {
         this.inFlightResources.delete(cacheKey);
       });
@@ -947,83 +966,6 @@ export class UpharmaService {
     };
 
     await Promise.all(Array.from({ length: Math.min(this.shopConcurrency, items.length) }, () => worker()));
-  }
-
-  private getCallCacheKey(pathname: string, payload: RawRecord): string {
-    const stablePayload = Object.fromEntries(
-      Object.entries(payload)
-        .filter(([key]) => key !== "Token")
-        .sort(([firstKey], [secondKey]) => firstKey.localeCompare(secondKey)),
-    );
-
-    return `${this.callCacheKeyPrefix}${pathname}_${JSON.stringify(stablePayload)}`;
-  }
-
-  private readCallCache(cacheKey: string): unknown | null {
-    try {
-      const rawCache = localStorage.getItem(cacheKey);
-
-      if (!rawCache) {
-        return null;
-      }
-
-      const entry = JSON.parse(rawCache) as CachedCall;
-
-      if (!entry.savedAt || Date.now() - entry.savedAt > this.callCacheTtlMs) {
-        localStorage.removeItem(cacheKey);
-        return null;
-      }
-
-      return entry.data;
-    } catch {
-      localStorage.removeItem(cacheKey);
-      return null;
-    }
-  }
-
-  private writeCallCache(cacheKey: string, data: unknown): void {
-    try {
-      localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), data } satisfies CachedCall));
-    } catch {
-      this.clearResourceCache();
-    }
-  }
-
-  private getResourceCacheKey(resourceName: keyof RemoteDatasets, session: LoginResponse): string {
-    const shopCodes = this.shopList.map((shop) => shop.ShopCode).join(",");
-    const config = this.getResourceConfig(resourceName)!;
-
-    return `${this.cacheStorageKeyPrefix}${resourceName}_${session.UserInfo.uPharmaID}_${shopCodes}_${JSON.stringify(config.payload())}`;
-  }
-
-  private readResourceCache(cacheKey: string): ResourceResponse | null {
-    try {
-      const rawCache = localStorage.getItem(cacheKey);
-
-      if (!rawCache) {
-        return null;
-      }
-
-      const entry = JSON.parse(rawCache) as CachedResource;
-
-      if (!entry.savedAt || Date.now() - entry.savedAt > this.cacheTtlMs) {
-        localStorage.removeItem(cacheKey);
-        return null;
-      }
-
-      return entry.data;
-    } catch {
-      localStorage.removeItem(cacheKey);
-      return null;
-    }
-  }
-
-  private writeResourceCache(cacheKey: string, data: ResourceResponse): void {
-    try {
-      localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), data } satisfies CachedResource));
-    } catch {
-      this.clearResourceCache();
-    }
   }
 
   private async request<T>(pathname: string, payload: RawRecord): Promise<T> {
@@ -1244,7 +1186,7 @@ export class UpharmaService {
         payload: () => ({ TimeStart: `${today} 00:00:00`, TimeEnd: currentTime }),
       },
       employees: {
-        pathname: "/Employee/GetEmployeeOfShop",
+        pathname: "/Organization/GetSalesmanByShop",
         payload: () => ({}),
       },
       orders: {

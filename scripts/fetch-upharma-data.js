@@ -7,12 +7,16 @@ let db = null;
 if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
   try {
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+    const defaultDbUrl = serviceAccount.project_id === 'thao-uph'
+      ? 'https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app'
+      : `https://${serviceAccount.project_id}-default-rtdb.firebaseio.com`;
+    const databaseURL = process.env.FIREBASE_DATABASE_URL || defaultDbUrl;
     const app = initializeApp({
       credential: cert(serviceAccount),
-      databaseURL: process.env.FIREBASE_DATABASE_URL || `https://${serviceAccount.project_id}-default-rtdb.firebaseio.com`
+      databaseURL: databaseURL
     });
     db = getDatabase(app);
-    console.log("Firebase Admin initialized (Kết nối Firebase thành công)");
+    console.log(`Firebase Admin initialized thành công (Target DB: ${databaseURL})`);
   } catch (err) {
     console.error("Firebase init error (Kết nối Firebase thất bại):", err.message);
   }

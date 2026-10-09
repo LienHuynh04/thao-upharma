@@ -48,6 +48,26 @@ export class LayoutComponent implements OnInit, OnDestroy {
   showPromptModal = false;
   promptContent = '';
 
+  get userName(): string {
+    const session = this.upharma.getSession();
+    const info = session?.UserInfo as any;
+    if (info?.FullName && info.FullName !== 'Admin') return info.FullName;
+    if (info?.Email) return info.Email;
+    if (info?.UserName) return info.UserName;
+    return 'thao.nguyenngocanh.asm@cpc1hn.com.vn';
+  }
+
+  get userEmail(): string {
+    return this.userName;
+  }
+
+  get userInitial(): string {
+    const name = this.userName.trim();
+    if (!name) return 'T';
+    const parts = name.split(/[\s.@]+/);
+    return (parts[0] || 'T').charAt(0).toUpperCase();
+  }
+
   constructor(public upharma: UpharmaService, public router: Router) {}
 
   onActivate(componentRef: any) {
@@ -820,9 +840,7 @@ renderDashboard(); renderInventory(); renderNearExpiryOrders(); renderTabs(); re
     this.routerSub?.unsubscribe();
   }
 
-  get userInitial(): string {
-    return (this.userTitle.trim().split(/\s+/).at(-1) || "U").slice(0, 1).toUpperCase();
-  }
+
 
   checkSession() {
     if (!this.upharma.isAuthenticated()) {

@@ -130,34 +130,74 @@ export class DashboardService {
       throw new Error(`Could not load employees for: ${failedShops.join(', ')}`);
     }
 
-    const employees = results.flatMap((result) =>
+    const rawEmployees = results.flatMap((result) =>
       result.status === 'fulfilled' ? result.value : []
     );
-    const uniqueEmployees = new Map<string, ManagedEmployee>();
-    employees.forEach((employee) => {
-      const key = String(
-        employee['EmployeeID'] ||
-        employee['EmployeeCode'] ||
-        employee['EmCode'] ||
-        employee['uPharmaID'] ||
-        `${employee['ShopCode']}:${employee['EmployeeName'] || employee['FullName'] || ''}`
-      );
-      if (!uniqueEmployees.has(key)) uniqueEmployees.set(key, employee);
-    });
 
-    const activeEmployees = [...uniqueEmployees.values()].filter((employee) => {
+    const activeEmployees = rawEmployees.filter((employee) => {
       const resigned = employee['IsResign'];
       return resigned !== true && Number(resigned) !== 1 && String(resigned).toLowerCase() !== 'true';
     });
-    const storeManagers = activeEmployees.filter((employee) => {
-      const role = String(employee['RoleName'] || employee['UTypeTxt'] || '').toLowerCase();
-      return role.includes('cửa hàng trưởng') || role.includes('cht');
-    }).length;
+
+    // 1 nhân sự nếu có nhiều chức vụ/record thì chỉ đếm là 1
+    // Nếu có ít nhất 1 chức vụ CHT thì xếp vào nhóm CHT
+    const uniqueActiveEmployees = new Map<string, { isStoreManager: boolean; employee: ManagedEmployee }>();
+
+    for (const emp of activeEmployees) {
+      const key = String(
+        emp['EmployeeCode'] ||
+        emp['uPharmaIDCode'] ||
+        emp['EmCode'] ||
+        emp['EmployeeID'] ||
+        emp['uPharmaID'] ||
+        emp['EmployeeName'] ||
+        emp['FullName'] ||
+        ''
+      ).trim().toLowerCase();
+
+      const role = String(
+        emp['UserDefineName'] ||
+        emp['RoleName'] ||
+        emp['UTypeTxt'] ||
+        emp['PositionName'] ||
+        emp['JobTitle'] ||
+        emp['Title'] ||
+        emp['EmRole'] ||
+        emp['ChucVu'] ||
+        ''
+      ).toLowerCase();
+
+      const isManager = (
+        role.includes('cửa hàng trưởng') ||
+        role.includes('cht') ||
+        role.includes('trưởng cửa hàng') ||
+        role.includes('quản lý') ||
+        role.includes('qlnt') ||
+        role.includes('trưởng nhà thuốc') ||
+        emp['IsManager'] === true ||
+        Number(emp['IsManager']) === 1 ||
+        emp['IsLeader'] === true ||
+        Number(emp['IsLeader']) === 1
+      );
+
+      const existing = uniqueActiveEmployees.get(key);
+      if (!existing) {
+        uniqueActiveEmployees.set(key, { isStoreManager: isManager, employee: emp });
+      } else {
+        if (isManager) {
+          existing.isStoreManager = true;
+        }
+      }
+    }
+
+    const uniqueList = [...uniqueActiveEmployees.values()];
+    const storeManagers = uniqueList.filter(item => item.isStoreManager).length;
+    const total = uniqueList.length;
 
     return {
-      total: activeEmployees.length,
+      total,
       storeManagers,
-      salesRepresentatives: activeEmployees.length - storeManagers
+      salesRepresentatives: Math.max(0, total - storeManagers)
     };
   }
 

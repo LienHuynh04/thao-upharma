@@ -620,17 +620,37 @@ async function run() {
         }
 
         console.log(`[${resourceName}] DONE ${shop.ShopCode} (${mappedArray.length} records, ${Math.round((Date.now() - startedAt) / 1000)}s)`);
-        return { shop, mappedArray };
+        return { shop, mappedArray, payloadData };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.warn(`[${resourceName}] FAIL ${shop.ShopCode}: ${message}`);
         failedShops.push(`${shop.ShopCode}: ${message}`);
-        return { shop, mappedArray: [] };
+        return { shop, mappedArray: [], payloadData: [] };
       }
     });
 
     for (const result of shopResults) {
       data.push(...result.mappedArray);
+    }
+
+    if (db) {
+      const combinedByShop = {};
+      for (const result of shopResults) {
+        if (result && result.shop && result.shop.ShopCode) {
+          combinedByShop[result.shop.ShopCode] = result.payloadData !== undefined ? result.payloadData : result.mappedArray;
+        }
+      }
+      try {
+        await db.ref(`upharma_data/${resourceName}`).set({
+          success: true,
+          resource: resourceName,
+          data: combinedByShop,
+          fetchedAt: new Date().toISOString(),
+        });
+        console.log(`[Firebase RTDB] ✅ Đã lưu gộp upharma_data/${resourceName} (${Object.keys(combinedByShop).length} shops)`);
+      } catch (err) {
+        console.warn(`[Firebase RTDB] Lỗi lưu gộp upharma_data/${resourceName}:`, err.message);
+      }
     }
 
     const resourceData = {

@@ -45,9 +45,6 @@ export interface SidebarMenuItem {
           >
             <span class="nav-icon">{{ item.icon }}</span>
             <span class="nav-label" *ngIf="!isCollapsed">{{ item.label }}</span>
-            @if (item.badge !== undefined && !isCollapsed) {
-              <span class="nav-badge">{{ item.badge }}</span>
-            }
           </a>
         }
       </nav>

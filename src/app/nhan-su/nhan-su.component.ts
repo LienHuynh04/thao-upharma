@@ -104,7 +104,7 @@ export interface EmployeeListItem {
               } @else if (displayedEmployees.length === 0) {
                 <tr><td colspan="7" class="text-center text-secondary py-4">Không có dữ liệu nhân sự.</td></tr>
               } @else {
-                @for (emp of displayedEmployees; track emp.code) {
+                @for (emp of displayedEmployees; track (emp.code + '-' + emp.role + '-' + emp.shopCode + '-' + $index)) {
                 <tr style="border-bottom: 1px solid #f1f5f9;">
                   <td class="px-3 fw-bold text-dark" style="white-space: nowrap !important;">{{ emp.code }}</td>
                   <td class="px-3 fw-bold text-dark">{{ emp.name }}</td>
@@ -223,7 +223,11 @@ export class NhanSuComponent implements OnInit {
   }
 
   get activeDisplayedEmployeeCount(): number {
-    return this.displayedEmployees.filter(employee => employee.resigned !== 'Đã nghỉ').length;
+    const active = this.displayedEmployees.filter(employee => employee.resigned !== 'Đã nghỉ');
+    const uniqueKeys = new Set(
+      active.map(e => (e.code && e.code !== '—' ? e.code : (e.id || e.name)).trim().toLowerCase())
+    );
+    return uniqueKeys.size;
   }
 
   constructor(
@@ -352,7 +356,7 @@ export class NhanSuComponent implements OnInit {
       id: String(item.EmployeeID || item.uPharmaID || item.DocumentID || item.EmployeeCode || item.EmCode || ''),
       code: item.uPharmaIDCode || item.EmployeeCode || item.EmCode || item.uPharmaID || '—',
       name: item.EmployeeName || item.FullName || 'Nhân viên',
-      role: item.UserDefineName || item.RoleName || item.UTypeTxt || 'NVBH',
+      role: item.UserDefineName || item.RoleName || item.UTypeTxt || item.PositionName || item.JobTitle || item.Title || item.EmRole || item.ChucVu || 'NVBH',
       shopCode: item.ShopCode || shopCode,
       province,
       startDate: startDate ? startDate.slice(0, 10) : '—',

@@ -134,8 +134,48 @@ export class UpharmaService {
   private readonly useBackendProxy = environment.useBackendProxy;
   private readonly inFlightResources = new Map<string, Promise<ResourceResponse>>();
   private readonly firebaseSalesSpeedInFlight = new Map<string, Promise<RawRecord[]>>();
+  private readonly aggregatedInFlight = new Map<string, Promise<any>>();
+  private readonly aggregatedCache = new Map<string, { data: any; fetchedAt: number }>();
   private sessionData: LoginResponse | null = null;
   private shopList: ShopInfo[] = [];
+
+  private async fetchAggregatedFirebaseResource(resourceName: string, normalizedFirebase: string): Promise<Record<string, any> | null> {
+    const cached = this.aggregatedCache.get(resourceName);
+    const now = Date.now();
+    if (cached && (now - cached.fetchedAt) < 60000) {
+      return cached.data;
+    }
+
+    if (this.aggregatedInFlight.has(resourceName)) {
+      return this.aggregatedInFlight.get(resourceName)!;
+    }
+
+    const promise = (async () => {
+      try {
+        const url = `${normalizedFirebase}/upharma_data/${resourceName}.json`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+        if (!res.ok) return null;
+        const json = await res.json();
+        if (!json) return null;
+        const shopMap = json.data || json;
+        if (shopMap && typeof shopMap === 'object' && !Array.isArray(shopMap)) {
+          console.log(`[Firebase Fetch] ✅ Đã tải gộp ${resourceName} thành công từ 1 request: ${url}`);
+          this.aggregatedCache.set(resourceName, { data: shopMap, fetchedAt: Date.now() });
+          return shopMap;
+        }
+        return null;
+      } catch {
+        return null;
+      } finally {
+        this.aggregatedInFlight.delete(resourceName);
+      }
+    })();
+
+    this.aggregatedInFlight.set(resourceName, promise);
+    return promise;
+  }
 
   constructor(private readonly router: Router) {
     this.clearResourceCache();
@@ -307,6 +347,35 @@ export class UpharmaService {
           return (json?.data || {}) as T;
         }
 
+        const shopMap = await this.fetchAggregatedFirebaseResource(resourceName, normalizedFirebase);
+        if (shopMap) {
+          const shopsData: any[] = [];
+          for (const shop of shopsToFetch) {
+            const rows = shopMap[shop.ShopCode];
+            let list: any[] = [];
+            if (Array.isArray(rows)) {
+              list = rows;
+            } else if (rows && typeof rows === 'object') {
+              list = Object.values(rows);
+            }
+            shopsData.push(...list);
+            if (typeof options.onShopLoaded === "function") {
+              options.onShopLoaded(shop.ShopCode, list);
+            }
+          }
+          return {
+            success: true,
+            RespCode: 0,
+            RespText: "OK",
+            resource: resourceName,
+            shops: shopsToFetch,
+            failedShops: [],
+            data: shopsData,
+            ShopPlanLst: shopsData,
+            fetchedAt: new Date().toISOString(),
+          } as unknown as T;
+        }
+
         const shopsData: any[] = [];
         const failedShops: string[] = [];
 
@@ -318,7 +387,6 @@ export class UpharmaService {
               if (!request) {
                 request = (async () => {
                   const url = `${normalizedFirebase}/shops/${shop.ShopCode}/upharma_data/${resourceName}.json`;
-                  console.log(`[Firebase Fetch] Đang tải ${resourceName} cho shop ${shop.ShopCode} từ: ${url}`);
                   const response = await fetch(url);
                   if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
@@ -655,6 +723,8 @@ export class UpharmaService {
   clearResourceCache(): void {
     this.firebaseSalesSpeedInFlight.clear();
     this.inFlightResources.clear();
+    this.aggregatedInFlight.clear();
+    this.aggregatedCache.clear();
     const cachePrefixes = [
       this.cacheStorageKeyPrefix,
       "upharma_call_",
@@ -752,6 +822,52 @@ export class UpharmaService {
         const shopsToFetch = requestedShopCodes.size > 0
           ? this.shopList.filter((shop) => requestedShopCodes.has(shop.ShopCode))
           : (this.shopList.length > 0 ? [this.shopList[0]] : []);
+        const shopMap = await this.fetchAggregatedFirebaseResource(resourceName, normalizedFirebase);
+        if (shopMap) {
+          const shopsData: any[] = [];
+          for (const shop of shopsToFetch) {
+            const raw = shopMap[shop.ShopCode];
+            let rawList: any[] = [];
+            if (Array.isArray(raw)) {
+              rawList = raw;
+            } else if (raw && typeof raw === 'object') {
+              rawList = Object.values(raw);
+            }
+            const filteredData = rawList
+              .filter((item: any) => {
+                const code = String(item?.ProductCode || item?.ProductID || item?.MaSP || item?.Code || "").toUpperCase().trim();
+                const name = String(item?.ProductName || item?.Product_Name || item?.TenSP || item?.Name || "").toUpperCase().trim();
+                return !(code.includes("VOUCHER") || name.includes("VOUCHER") || code.startsWith("VC"));
+              })
+              .map((item: any) => ({
+                ...item,
+                __shopCode: item.__shopCode || item.ShopCode || item.shopCode || shop.ShopCode,
+                __shopName: item.__shopName || item.ShopName || item.shopName || shop.ShopName,
+                ShopCode: item.ShopCode || item.shopCode || shop.ShopCode,
+                ShopName: item.ShopName || item.shopName || shop.ShopName,
+              }));
+
+            shopsData.push(...filteredData);
+            if (options.onShopLoaded) {
+              options.onShopLoaded(shop.ShopCode, filteredData);
+            }
+          }
+
+          return {
+            success: true,
+            resource: resourceName,
+            user: {
+              uPharmaID: session.UserInfo.uPharmaID,
+              FullName: session.UserInfo.FullName,
+              Email: session.UserInfo.Email,
+            },
+            shops: shopsToFetch,
+            data: shopsData,
+            failedShops: [],
+            fetchedAt: new Date().toISOString(),
+          };
+        }
+
         const shopsData: any[] = [];
         const failedShops: string[] = [];
         

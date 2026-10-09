@@ -1,0 +1,17 @@
+{
+  "hosting": {
+    "site": "thao-upharma",
+    "public": "dist/thao-upharma/browser",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

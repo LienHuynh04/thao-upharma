@@ -9,5 +9,5 @@ export const environment = {
     Password: "",
   },
   excludedShopCodes: ["SHOP0018", "SHOP0040"],
-  firebaseDbUrl: "https://an-upharma-default-rtdb.firebaseio.com"
+  firebaseDbUrl: "https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app"
 };

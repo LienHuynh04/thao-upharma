@@ -1,4 +1,7 @@
 {
+  "database": {
+    "rules": "database.rules.json"
+  },
   "hosting": {
     "site": "thao-upharma",
     "public": "dist/thao-upharma/browser",

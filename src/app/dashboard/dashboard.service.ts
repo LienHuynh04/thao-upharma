@@ -307,19 +307,28 @@ export class DashboardService {
   }
 
   private findItemsForPeriod(plans: ShopPlanApiItem[], months: number[], year: number): ShopPlanApiItem[] {
-    return plans.filter(p => {
+    if (!Array.isArray(plans) || plans.length === 0) {
+      return [];
+    }
+    const matched = plans.filter(p => {
       let mNum = 0;
       if (typeof p.Month === 'number') {
         mNum = p.Month;
       } else if (typeof p.Month === 'string') {
         const dateMatch = p.Month.match(/^\d{4}-(\d{1,2})(?:-|$)/);
+        const monthNumMatch = p.Month.match(/-(\d{1,2})-/);
         const numericMatch = p.Month.match(/^(\d{1,2})$/);
         if (dateMatch) mNum = parseInt(dateMatch[1], 10);
+        else if (monthNumMatch) mNum = parseInt(monthNumMatch[1], 10);
         else if (numericMatch) mNum = parseInt(numericMatch[1], 10);
       }
       if (!mNum && p.TimeMonth) mNum = p.TimeMonth;
       if (!mNum && p.TimeStart) {
-        const d = new Date(p.TimeStart);
+        const d = new Date(String(p.TimeStart).replace(' ', 'T'));
+        if (!isNaN(d.getTime())) mNum = d.getMonth() + 1;
+      }
+      if (!mNum && p.TimeCreate) {
+        const d = new Date(String(p.TimeCreate).replace(' ', 'T'));
         if (!isNaN(d.getTime())) mNum = d.getMonth() + 1;
       }
 
@@ -327,17 +336,22 @@ export class DashboardService {
       if (p.Year) yNum = p.Year;
       else if (p.TimeYear) yNum = p.TimeYear;
       else if (p.TimeStart) {
-        const d = new Date(p.TimeStart);
+        const d = new Date(String(p.TimeStart).replace(' ', 'T'));
+        if (!isNaN(d.getTime())) yNum = d.getFullYear();
+      } else if (p.TimeCreate) {
+        const d = new Date(String(p.TimeCreate).replace(' ', 'T'));
         if (!isNaN(d.getTime())) yNum = d.getFullYear();
       } else if (typeof p.Month === 'string') {
         const match = p.Month.match(/^(\d{4})-/);
         if (match) yNum = parseInt(match[1], 10);
       }
 
-      const monthMatches = months.includes(mNum);
+      const monthMatches = !mNum || months.includes(mNum);
       const yearMatches = !yNum || yNum === year;
       return monthMatches && yearMatches;
     });
+
+    return matched.length > 0 ? matched : plans;
   }
 
   private processApiData(

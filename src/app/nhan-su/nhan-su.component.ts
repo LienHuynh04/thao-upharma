@@ -2,6 +2,7 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ShopInfo, UpharmaService } from '../upharma.service';
+import { environment } from '../../environments/environment';
 
 export interface EmployeeListItem {
   id?: string;
@@ -21,12 +22,45 @@ export interface EmployeeListItem {
   template: `
     <div class="page-container p-3 p-md-4">
       <!-- Section Heading -->
-      <div class="d-flex justify-content-between align-items-center mb-4">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
         <div>
           <h2 class="fs-4 fw-extrabold m-0" style="color: #111827; font-weight: 800;">Nhân sự</h2>
           <span class="text-muted" style="font-size: 12px;">Quản lý hồ sơ nhân sự & Cán bộ quản lý Upharma</span>
         </div>
-        <div class="d-flex gap-2 align-items-center">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <!-- Tabs: Đang hiển thị / Đã ẩn -->
+          <div class="d-flex align-items-center gap-1 p-1 bg-white rounded-pill border shadow-sm">
+            <button
+              type="button"
+              class="btn btn-sm rounded-pill fw-bold px-3 py-1 d-inline-flex align-items-center gap-2 border-0 transition-all"
+              [style.background-color]="activeTab === 'active' ? '#0d472b' : 'transparent'"
+              [style.color]="activeTab === 'active' ? '#ffffff' : '#64748b'"
+              (click)="activeTab = 'active'"
+            >
+              <span>Đang hiển thị</span>
+              <span
+                class="badge rounded-pill"
+                [style.background-color]="activeTab === 'active' ? '#10b981' : '#e2e8f0'"
+                [style.color]="activeTab === 'active' ? '#ffffff' : '#475569'"
+              >{{ activeFilteredEmployees.length }}</span>
+            </button>
+
+            <button
+              type="button"
+              class="btn btn-sm rounded-pill fw-bold px-3 py-1 d-inline-flex align-items-center gap-2 border-0 transition-all"
+              [style.background-color]="activeTab === 'hidden' ? '#0d472b' : 'transparent'"
+              [style.color]="activeTab === 'hidden' ? '#ffffff' : '#64748b'"
+              (click)="activeTab = 'hidden'"
+            >
+              <span>Đã ẩn</span>
+              <span
+                class="badge rounded-pill"
+                [style.background-color]="activeTab === 'hidden' ? '#ef4444' : '#e2e8f0'"
+                [style.color]="activeTab === 'hidden' ? '#ffffff' : '#475569'"
+              >{{ hiddenFilteredEmployees.length }}</span>
+            </button>
+          </div>
+
           <!-- Filter by Shop Dropdown -->
           <select
             class="form-select form-select-sm rounded-3 border-secondary-subtle fw-bold"
@@ -39,10 +73,6 @@ export interface EmployeeListItem {
               <option [value]="shop.ShopCode">{{ shop.ShopCode }} — {{ shop.ShopName }}</option>
             }
           </select>
-
-          <button class="btn btn-success btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm d-flex align-items-center gap-1" style="background-color: #0d472b; border-color: #0d472b; height: 35px;" (click)="showAddModal = true">
-            <span>+</span> Thêm nhân viên
-          </button>
         </div>
       </div>
 
@@ -111,23 +141,30 @@ export interface EmployeeListItem {
       <!-- Main Data Table Card -->
       <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-3" style="background-color: #ffffff; border: 1px solid #e2e8f0 !important;">
         <div class="table-responsive">
-          <table class="table table-hover align-middle m-0" style="font-size: 13px;">
+          <table class="table table-hover align-middle m-0" style="font-size: 13px; width: 100% !important; min-width: 900px;">
             <thead style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
               <tr>
                 <th class="py-3 px-3 text-secondary fw-bold" style="width: 110px;">Mã NV</th>
-                <th class="py-3 px-3 text-secondary fw-bold">Tên nhân viên</th>
-                <th class="py-3 px-3 text-secondary fw-bold">Chức danh</th>
-                <th class="py-3 px-3 text-secondary fw-bold text-center">Mã NT</th>
-                <th class="py-3 px-3 text-secondary fw-bold">Tỉnh</th>
-                <th class="py-3 px-3 text-secondary fw-bold text-center">Ngày nhận việc</th>
-                <th class="py-3 px-3 text-secondary fw-bold text-center" style="width: 90px;"></th>
+                <th class="py-3 px-3 text-secondary fw-bold" style="min-width: 180px;">Tên nhân viên</th>
+                <th class="py-3 px-3 text-secondary fw-bold" style="width: 130px;">Chức danh</th>
+                <th class="py-3 px-3 text-secondary fw-bold text-center" style="width: 90px;">Mã NT</th>
+                <th class="py-3 px-3 text-secondary fw-bold" style="width: 100px;">Tỉnh</th>
+                <th class="py-3 px-3 text-secondary fw-bold text-center" style="width: 130px;">Ngày nhận việc</th>
+                <th class="py-3 px-3 text-secondary fw-bold text-center" style="width: 105px;">Thao tác</th>
               </tr>
             </thead>
             <tbody>
               @if (isLoading) {
                 <tr><td colspan="7" class="text-center text-secondary py-4">Đang tải danh sách nhân sự...</td></tr>
               } @else if (displayedEmployees.length === 0) {
-                <tr><td colspan="7" class="text-center text-secondary py-4">Không có dữ liệu nhân sự.</td></tr>
+                <tr>
+                  <td colspan="7" class="text-center text-secondary py-5">
+                    <div class="d-flex flex-column align-items-center justify-content-center">
+                      <span class="fs-1 mb-2">{{ activeTab === 'active' ? '👥' : '👁️‍🗨️' }}</span>
+                      <span class="fw-semibold">{{ activeTab === 'active' ? 'Không có nhân sự nào đang hiển thị.' : 'Chưa có nhân sự nào bị ẩn.' }}</span>
+                    </div>
+                  </td>
+                </tr>
               } @else {
                 @for (emp of displayedEmployees; track (emp.code + '-' + emp.role + '-' + emp.shopCode + '-' + $index)) {
                 <tr style="border-bottom: 1px solid #f1f5f9;">
@@ -142,9 +179,33 @@ export interface EmployeeListItem {
                   <td class="px-3 fw-semibold text-dark">{{ emp.province }}</td>
                   <td class="px-3 text-center text-muted" style="white-space: nowrap !important;">{{ emp.startDate || '—' }}</td>
                   <td class="px-3 text-center" style="white-space: nowrap !important;">
-                    <div class="d-flex justify-content-center gap-2" style="font-size: 12px; font-weight: 700;">
-                      <a href="javascript:void(0)" class="text-decoration-none" style="color: #64748b;" (click)="hideEmployee(emp)">Ẩn</a>
-                    </div>
+                    @if (activeTab === 'active') {
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary px-2 py-1 fw-bold rounded-2 d-inline-flex align-items-center gap-1 shadow-2xs"
+                        style="font-size: 11.5px;"
+                        [disabled]="isUpdatingEmpKey === getEmployeeKey(emp)"
+                        (click)="hideEmployee(emp)"
+                        title="Ẩn nhân viên này"
+                      >
+                        <span *ngIf="isUpdatingEmpKey !== getEmployeeKey(emp)">👁️‍🗨️</span>
+                        <span *ngIf="isUpdatingEmpKey === getEmployeeKey(emp)" class="spinner-border spinner-border-sm" role="status"></span>
+                        Ẩn
+                      </button>
+                    } @else {
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-success px-2 py-1 fw-bold rounded-2 text-white d-inline-flex align-items-center gap-1 shadow-2xs"
+                        style="font-size: 11.5px; background-color: #0d472b; border-color: #0d472b;"
+                        [disabled]="isUpdatingEmpKey === getEmployeeKey(emp)"
+                        (click)="unhideEmployee(emp)"
+                        title="Khôi phục hiển thị nhân viên này"
+                      >
+                        <span *ngIf="isUpdatingEmpKey !== getEmployeeKey(emp)">👁️</span>
+                        <span *ngIf="isUpdatingEmpKey === getEmployeeKey(emp)" class="spinner-border spinner-border-sm" role="status"></span>
+                        Hiện lại
+                      </button>
+                    }
                   </td>
                 </tr>
                 }
@@ -153,57 +214,22 @@ export interface EmployeeListItem {
           </table>
         </div>
       </div>
-      <div class="text-secondary fw-semibold ps-1" style="font-size: 13px; color: #6b7280;">
-        Tổng số bản ghi: {{ displayedEmployees.length }} | Tổng nhân viên đang làm: {{ activeDisplayedEmployeeCount }} ({{ chtCount }} CHT, {{ nvbhCount }} NVBH)
+      <div class="text-secondary fw-semibold ps-1" style="font-size: 13px; color: #6b7280;" *ngIf="!isLoading">
+        Tổng số bản ghi: {{ displayedEmployees.length }} {{ activeTab === 'active' ? 'đang hiển thị' : 'đã ẩn' }} | Tổng nhân viên: {{ activeDisplayedEmployeeCount }} ({{ chtCount }} CHT, {{ nvbhCount }} NVBH)
       </div>
-    </div>
 
-    <!-- Modal Thêm/Sửa nhân viên -->
-    @if (showAddModal) {
-      <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-          <div class="modal-content rounded-4 border-0 shadow">
-            <div class="modal-header border-bottom-0 pb-0">
-              <h5 class="modal-title fw-bold text-dark">{{ editingEmp ? 'Sửa thông tin nhân viên' : 'Thêm mới nhân viên' }}</h5>
-              <button type="button" class="btn-close" (click)="closeModal()"></button>
+      <!-- Toast thông báo -->
+      <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1090;" *ngIf="toastMessage">
+        <div class="toast show align-items-center text-white bg-success border-0 shadow-lg rounded-3" role="alert">
+          <div class="d-flex">
+            <div class="toast-body fw-bold d-flex align-items-center gap-2">
+              <span>✓</span> {{ toastMessage }}
             </div>
-            <div class="modal-body">
-              <div class="mb-3">
-                <label class="form-label fw-semibold">Mã NV</label>
-                <input type="text" class="form-control rounded-3" [(ngModel)]="newEmp.code" placeholder="UP001299" [disabled]="!!editingEmp" />
-              </div>
-              <div class="mb-3">
-                <label class="form-label fw-semibold">Tên nhân viên</label>
-                <input type="text" class="form-control rounded-3" [(ngModel)]="newEmp.name" placeholder="Nguyễn Văn A" />
-              </div>
-              <div class="mb-3">
-                <label class="form-label fw-semibold">Chức danh</label>
-                <select class="form-select rounded-3" [(ngModel)]="newEmp.role">
-                  <option value="NVBH">NVBH</option>
-                  <option value="Dược sĩ tư vấn">Dược sĩ tư vấn</option>
-                  <option value="Cửa hàng trưởng">Cửa hàng trưởng</option>
-                  <option value="Quản lý vùng">Quản lý vùng</option>
-                </select>
-              </div>
-              <div class="mb-3">
-                <label class="form-label fw-semibold">Mã Nhà thuốc</label>
-                <select class="form-select rounded-3" [(ngModel)]="newEmp.shopCode">
-                  @for (shop of managedShops; track shop.ShopCode) {
-                    <option [value]="shop.ShopCode">{{ shop.ShopCode }} — {{ shop.ShopName }}</option>
-                  }
-                </select>
-              </div>
-            </div>
-            <div class="modal-footer border-top-0 pt-0">
-              <button type="button" class="btn btn-light rounded-3 fw-bold" (click)="closeModal()">Hủy</button>
-              <button type="button" class="btn btn-success rounded-3 fw-bold text-white" style="background-color: #0d472b; border-color: #0d472b;" (click)="saveEmployee()">
-                {{ editingEmp ? 'Cập nhật' : 'Thêm mới' }}
-              </button>
-            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" (click)="toastMessage = ''"></button>
           </div>
         </div>
       </div>
-    }
+    </div>
   `,
   styles: [`
     :host {
@@ -242,9 +268,34 @@ export class NhanSuComponent implements OnInit {
   loadError = '';
   managedShops: ShopInfo[] = [];
 
-  get displayedEmployees(): EmployeeListItem[] {
+  activeTab: 'active' | 'hidden' = 'active';
+  hiddenEmployeeKeys = new Set<string>();
+  isUpdatingEmpKey = '';
+  toastMessage = '';
+  private toastTimer: any = null;
+
+  getEmployeeKey(emp: EmployeeListItem): string {
+    const empCode = (emp.code && emp.code !== '—' ? emp.code : (emp.id || emp.name || '')).trim().toLowerCase();
+    const shopCode = (emp.shopCode || '').trim().toLowerCase();
+    const rawKey = `${empCode}__${shopCode}`;
+    return rawKey.replace(/[.#$\[\]\/]/g, '_');
+  }
+
+  get filteredByShopEmployees(): EmployeeListItem[] {
     if (!this.filterShopCode) return this.employees;
     return this.employees.filter(e => e.shopCode === this.filterShopCode);
+  }
+
+  get activeFilteredEmployees(): EmployeeListItem[] {
+    return this.filteredByShopEmployees.filter(e => !this.hiddenEmployeeKeys.has(this.getEmployeeKey(e)));
+  }
+
+  get hiddenFilteredEmployees(): EmployeeListItem[] {
+    return this.filteredByShopEmployees.filter(e => this.hiddenEmployeeKeys.has(this.getEmployeeKey(e)));
+  }
+
+  get displayedEmployees(): EmployeeListItem[] {
+    return this.activeTab === 'active' ? this.activeFilteredEmployees : this.hiddenFilteredEmployees;
   }
 
   isCHT(role: string): boolean {
@@ -329,7 +380,10 @@ export class NhanSuComponent implements OnInit {
   ) {}
 
   async ngOnInit() {
-    await this.loadEmployeesWorkflow();
+    await Promise.all([
+      this.loadEmployeesWorkflow(),
+      this.loadHiddenEmployees()
+    ]);
   }
 
   async onFilterShopChange() {
@@ -551,12 +605,132 @@ export class NhanSuComponent implements OnInit {
     }
   }
 
-  hideEmployee(emp: EmployeeListItem) {
-    const idx = this.employees.findIndex(e => e.code === emp.code);
-    if (idx !== -1) {
-      this.employees.splice(idx, 1);
+  private get uPharmaID(): string {
+    const session = this.upharma.getSession();
+    const id = session?.UserInfo?.uPharmaID;
+    if (id !== undefined && id !== null && String(id).trim() !== '') {
+      return String(id).replace(/[.#$\[\]\/]/g, '_');
+    }
+    return 'default_user';
+  }
+
+  private get storageKey(): string {
+    return `upharma_hidden_employees_${this.uPharmaID}`;
+  }
+
+  private getLocalStorageHidden(): Set<string> {
+    try {
+      const data = localStorage.getItem(this.storageKey);
+      return data ? new Set(JSON.parse(data)) : new Set();
+    } catch {
+      return new Set();
+    }
+  }
+
+  private saveLocalStorageHidden(): void {
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify([...this.hiddenEmployeeKeys]));
+    } catch {}
+  }
+
+  async loadHiddenEmployees(): Promise<void> {
+    // 1. Tải ngay từ localStorage để hiển thị tức thì
+    this.hiddenEmployeeKeys = this.getLocalStorageHidden();
+
+    // 2. Đồng bộ với Firebase
+    try {
+      const url = `${environment.firebaseDbUrl}/hidden_employees/${this.uPharmaID}.json`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data === 'object') {
+          const remoteKeys = Object.keys(data);
+          for (const k of remoteKeys) {
+            this.hiddenEmployeeKeys.add(k);
+          }
+          this.saveLocalStorageHidden();
+        }
+      }
+    } catch (e) {
+      console.warn('Lỗi khi tải danh sách nhân sự ẩn từ Firebase:', e);
+    } finally {
       this.cdr.detectChanges();
     }
+  }
+
+  async hideEmployee(emp: EmployeeListItem): Promise<void> {
+    const empKey = this.getEmployeeKey(emp);
+    this.isUpdatingEmpKey = empKey;
+
+    // Cập nhật giao diện tức thì
+    this.hiddenEmployeeKeys.add(empKey);
+    this.saveLocalStorageHidden();
+    this.showToast(`Đã ẩn nhân viên ${emp.name} (${emp.code}) thành công.`);
+    this.cdr.detectChanges();
+
+    // Đồng bộ lên Firebase
+    try {
+      const url = `${environment.firebaseDbUrl}/hidden_employees/${this.uPharmaID}/${empKey}.json`;
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hidden: true,
+          empKey,
+          code: emp.code,
+          name: emp.name,
+          role: emp.role,
+          shopCode: emp.shopCode,
+          updatedAt: new Date().toISOString()
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[Firebase] Không thể ghi trạng thái ẩn nhân sự (HTTP ${res.status}), đã lưu offline.`);
+      }
+    } catch (e) {
+      console.warn(`[Firebase] Lỗi mạng khi ẩn nhân sự ${emp.code}, đã lưu offline:`, e);
+    } finally {
+      this.isUpdatingEmpKey = '';
+      this.cdr.detectChanges();
+    }
+  }
+
+  async unhideEmployee(emp: EmployeeListItem): Promise<void> {
+    const empKey = this.getEmployeeKey(emp);
+    this.isUpdatingEmpKey = empKey;
+
+    // Cập nhật giao diện tức thì
+    this.hiddenEmployeeKeys.delete(empKey);
+    this.saveLocalStorageHidden();
+    this.showToast(`Đã khôi phục hiển thị nhân viên ${emp.name} (${emp.code}) thành công.`);
+    this.cdr.detectChanges();
+
+    // Đồng bộ xóa trên Firebase (DELETE)
+    try {
+      const url = `${environment.firebaseDbUrl}/hidden_employees/${this.uPharmaID}/${empKey}.json`;
+      const res = await fetch(url, {
+        method: 'DELETE'
+      });
+      if (!res.ok) {
+        console.warn(`[Firebase] Không thể xóa trạng thái ẩn nhân sự (HTTP ${res.status}), đã lưu offline.`);
+      }
+    } catch (e) {
+      console.warn(`[Firebase] Lỗi mạng khi bỏ ẩn nhân sự ${emp.code}, đã lưu offline:`, e);
+    } finally {
+      this.isUpdatingEmpKey = '';
+      this.cdr.detectChanges();
+    }
+  }
+
+  showToast(msg: string): void {
+    this.toastMessage = msg;
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+    }
+    this.toastTimer = setTimeout(() => {
+      this.toastMessage = '';
+      this.cdr.detectChanges();
+    }, 3500);
   }
 
   closeModal() {

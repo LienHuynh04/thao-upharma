@@ -17,6 +17,18 @@
       ".read": "true",
       ".write": "true"
     },
+    "hidden_shops": {
+      ".read": "true",
+      ".write": "true"
+    },
+    "hidden_employees": {
+      ".read": "true",
+      ".write": "true"
+    },
+    "hidden_promotions": {
+      ".read": "true",
+      ".write": "true"
+    },
     "shops_summary": {
       ".read": "true",
       ".write": "auth != null"

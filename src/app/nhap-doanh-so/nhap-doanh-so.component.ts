@@ -21,115 +21,31 @@ export interface RecentSalesRecord {
     <div class="page-container p-3 p-md-4">
       <!-- Section Heading -->
       <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="fs-4 fw-extrabold m-0" style="color: #111827; font-weight: 800;">Nhập Doanh Số</h2>
-        <div class="d-flex gap-2 align-items-center">
-          @if (isSaving) {
-            <span class="badge bg-warning text-dark px-3 py-2 fw-bold">Đang lưu dữ liệu...</span>
-          }
+        <div>
+          <h2 class="fs-4 fw-extrabold m-0" style="color: #111827; font-weight: 800;">Nhập Doanh Số</h2>
+          <span class="text-muted" style="font-size: 12px;">Bản ghi doanh số và hàng hệ số theo từng ngày</span>
         </div>
       </div>
 
-      <!-- Card Form: + Nhập doanh số ngày -->
-      <div class="card border-0 shadow-sm rounded-4 p-4 mb-4" style="background-color: #ffffff; border: 1px solid #e2e8f0 !important;">
-        <h3 class="fs-6 fw-extrabold mb-3 text-dark d-flex align-items-center gap-2">
-          <span>+</span> Nhập doanh số ngày
-        </h3>
-        <form (ngSubmit)="saveEntry()">
-          <div class="row g-3 mb-3">
-            <div class="col-md-6">
-              <input
-                type="date"
-                class="form-control form-control-md rounded-3 border-secondary-subtle"
-                [(ngModel)]="entryDate"
-                name="entryDate"
-              />
-            </div>
-            <div class="col-md-6">
-              <select
-                class="form-select form-select-md rounded-3 border-secondary-subtle fw-semibold"
-                [(ngModel)]="selectedShopCode"
-                name="selectedShopCode"
-              >
-                @for (shop of shopOptions; track shop.code) {
-                  <option [value]="shop.code">{{ shop.code }} — {{ shop.name }}</option>
-                }
-              </select>
-            </div>
-          </div>
-
-          <div class="row g-3 align-items-center">
-            <div class="col-md-3">
-              <input
-                type="number"
-                step="0.1"
-                class="form-control rounded-3"
-                placeholder="Doanh số (triệu đồng)"
-                [(ngModel)]="entrySalesTr"
-                name="entrySalesTr"
-              />
-            </div>
-            <div class="col-md-3">
-              <input
-                type="number"
-                step="0.1"
-                class="form-control rounded-3"
-                placeholder="Hàng hệ số (triệu đồng)"
-                [(ngModel)]="entryHhsTr"
-                name="entryHhsTr"
-              />
-            </div>
-            <div class="col-md-2">
-              <input
-                type="number"
-                class="form-control rounded-3"
-                placeholder="Số đơn hàng"
-                [(ngModel)]="entryInvoices"
-                name="entryInvoices"
-              />
-            </div>
-            <div class="col-md-2">
-              <input
-                type="number"
-                class="form-control rounded-3"
-                placeholder="Số lượng SP"
-                [(ngModel)]="entryItemsCount"
-                name="entryItemsCount"
-              />
-            </div>
-            <div class="col-md-2">
-              <button
-                type="submit"
-                class="btn btn-success fw-bold w-100 rounded-3 text-white d-flex align-items-center justify-content-center gap-1"
-                style="background-color: #0d472b; border-color: #0d472b; height: 38px;"
-                [disabled]="isSaving"
-              >
-                {{ isSaving ? 'Đang lưu...' : 'Lưu' }}
-              </button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      <!-- Bàn ghi gần đây Table Section -->
+      <!-- Bản ghi gần đây Table Section -->
       <div class="section-heading mb-3 d-flex justify-content-between align-items-center">
-        <h3 class="fs-5 fw-extrabold text-dark m-0" style="font-weight: 800; color: #111827;">Bàn ghi gần đây</h3>
+        <h3 class="fs-5 fw-extrabold text-dark m-0" style="font-weight: 800; color: #111827;">Bản ghi gần đây</h3>
         @if (isLoading) {
           <span class="text-secondary fs-7 fw-semibold">Đang đồng bộ từ server...</span>
         }
       </div>
 
-      <div class="card border-0 shadow-sm rounded-4 overflow-hidden" style="background-color: #ffffff; border: 1px solid #e2e8f0 !important;">
+      <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-3" style="background-color: #ffffff; border: 1px solid #e2e8f0 !important;">
         <div class="table-responsive">
-          <table class="table table-hover align-middle m-0" style="font-size: 13px;">
+          <table class="table table-hover align-middle m-0" style="font-size: 13px; width: 100%;">
             <thead style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
               <tr>
-                <th class="py-3 px-3 text-secondary fw-bold">Ngày</th>
+                <th class="py-3 px-3 text-secondary fw-bold" style="width: 140px;">Ngày</th>
                 <th class="py-3 px-3 text-secondary fw-bold">Nhà thuốc</th>
-                <th class="py-3 px-3 text-secondary fw-bold">Doanh số (tr)</th>
-                <th class="py-3 px-3 text-secondary fw-bold">Hàng HS (tr)</th>
-                <th class="py-3 px-3 text-secondary fw-bold">Số đơn</th>
-                <th class="py-3 px-3 text-secondary fw-bold">SL SP</th>
-                <th class="py-3 px-3 text-secondary fw-bold text-center" style="width: 70px;"></th>
+                <th class="py-3 px-3 text-secondary fw-bold text-end" style="width: 160px;">Doanh số (tr)</th>
+                <th class="py-3 px-3 text-secondary fw-bold text-end" style="width: 160px;">Hàng HS (tr)</th>
+                <th class="py-3 px-3 text-secondary fw-bold text-center" style="width: 120px;">Số đơn</th>
+                <th class="py-3 px-3 text-secondary fw-bold text-center" style="width: 120px;">SL SP</th>
               </tr>
             </thead>
             <tbody>
@@ -137,13 +53,10 @@ export interface RecentSalesRecord {
                 <tr style="border-bottom: 1px solid #f1f5f9;">
                   <td class="px-3 fw-semibold text-dark">{{ rec.date }}</td>
                   <td class="px-3 fw-bold text-dark">{{ rec.shopCode }}</td>
-                  <td class="px-3 fw-bold text-dark">{{ rec.salesTr.toFixed(1) }}</td>
-                  <td class="px-3 fw-bold text-dark">{{ rec.hhsTr.toFixed(1) }}</td>
-                  <td class="px-3 fw-semibold text-dark">{{ rec.invoices }}</td>
-                  <td class="px-3 fw-semibold text-dark">{{ rec.itemsCount }}</td>
-                  <td class="px-3 text-center">
-                    <a href="javascript:void(0)" class="text-decoration-none" style="color: #ef4444; font-weight: 700;" (click)="deleteRecord($index)">Xoá</a>
-                  </td>
+                  <td class="px-3 fw-bold text-dark text-end">{{ rec.salesTr.toFixed(1) }}</td>
+                  <td class="px-3 fw-bold text-dark text-end">{{ rec.hhsTr.toFixed(1) }}</td>
+                  <td class="px-3 fw-semibold text-dark text-center">{{ rec.invoices }}</td>
+                  <td class="px-3 fw-semibold text-dark text-center">{{ rec.itemsCount }}</td>
                 </tr>
               }
             </tbody>

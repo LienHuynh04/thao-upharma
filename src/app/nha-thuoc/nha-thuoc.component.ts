@@ -2,6 +2,7 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { UpharmaService, ShopPlanApiItem } from '../upharma.service';
+import { environment } from '../../environments/environment';
 
 export interface ShopListItem {
   province: 'ĐÀ' | 'HU';
@@ -28,10 +29,43 @@ export interface ShopListItem {
       </div>
 
       <!-- Section Heading -->
-      <div class="d-flex justify-content-between align-items-center mb-4" *ngIf="!isLoading">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3" *ngIf="!isLoading">
         <div>
           <h2 class="fs-4 fw-extrabold m-0" style="color: #111827; font-weight: 800;">Danh sách nhà thuốc</h2>
           <span class="text-muted" style="font-size: 12px;">Hệ thống nhà thuốc Upharma được phân quyền quản lý</span>
+        </div>
+
+        <!-- Tabs: Đang hiển thị / Đã ẩn -->
+        <div class="d-flex align-items-center gap-2 p-1 bg-white rounded-pill border shadow-sm">
+          <button
+            type="button"
+            class="btn btn-sm rounded-pill fw-bold px-3 py-1 d-inline-flex align-items-center gap-2 border-0 transition-all"
+            [style.background-color]="activeTab === 'active' ? '#0d472b' : 'transparent'"
+            [style.color]="activeTab === 'active' ? '#ffffff' : '#64748b'"
+            (click)="activeTab = 'active'"
+          >
+            <span>Đang hiển thị</span>
+            <span
+              class="badge rounded-pill"
+              [style.background-color]="activeTab === 'active' ? '#10b981' : '#e2e8f0'"
+              [style.color]="activeTab === 'active' ? '#ffffff' : '#475569'"
+            >{{ activeShops.length }}</span>
+          </button>
+
+          <button
+            type="button"
+            class="btn btn-sm rounded-pill fw-bold px-3 py-1 d-inline-flex align-items-center gap-2 border-0 transition-all"
+            [style.background-color]="activeTab === 'hidden' ? '#0d472b' : 'transparent'"
+            [style.color]="activeTab === 'hidden' ? '#ffffff' : '#64748b'"
+            (click)="activeTab = 'hidden'"
+          >
+            <span>Đã ẩn</span>
+            <span
+              class="badge rounded-pill"
+              [style.background-color]="activeTab === 'hidden' ? '#ef4444' : '#e2e8f0'"
+              [style.color]="activeTab === 'hidden' ? '#ffffff' : '#475569'"
+            >{{ hiddenShops.length }}</span>
+          </button>
         </div>
       </div>
 
@@ -57,25 +91,32 @@ export interface ShopListItem {
             </colgroup>
             <thead style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
               <tr>
-                <th class="py-3 px-2 text-secondary fw-bold text-center" style="width: 45px;">KV</th>
-                <th class="py-3 px-2 text-secondary fw-bold" style="width: 85px;">Mã</th>
+                <th class="py-3 px-2 text-secondary fw-bold text-center">KV</th>
+                <th class="py-3 px-2 text-secondary fw-bold">Mã</th>
                 <th class="py-3 px-3 text-secondary fw-bold address-col">Địa chỉ</th>
-                <th class="py-3 px-2 text-secondary fw-bold text-center" style="width: 100px;">SĐT</th>
-                <th class="py-3 px-2 text-secondary fw-bold text-center" style="width: 105px;">Ngày mở bán</th>
-                <th class="py-3 px-2 text-secondary fw-bold text-center" style="width: 75px;">Tuổi</th>
-                <th class="py-3 px-2 text-secondary fw-bold text-center" style="width: 140px;">Giai đoạn hiện tại</th>
-                <th class="py-3 px-2 text-secondary fw-bold text-center" style="width: 130px;">Target DS/HHS (tr)</th>
-                <th class="py-3 px-2 text-secondary fw-bold text-center" style="width: 60px;">GPP</th>
-                <th class="py-3 px-2 text-secondary fw-bold text-center" style="width: 75px;"></th>
+                <th class="py-3 px-2 text-secondary fw-bold text-center">SĐT</th>
+                <th class="py-3 px-2 text-secondary fw-bold text-center">Ngày mở bán</th>
+                <th class="py-3 px-2 text-secondary fw-bold text-center">Tuổi</th>
+                <th class="py-3 px-2 text-secondary fw-bold text-center">Giai đoạn hiện tại</th>
+                <th class="py-3 px-2 text-secondary fw-bold text-center">Target DS/HHS (tr)</th>
+                <th class="py-3 px-2 text-secondary fw-bold text-center">GPP</th>
+                <th class="py-3 px-2 text-secondary fw-bold text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody>
               @if (isLoading) {
                 <tr><td colspan="10" class="text-center text-secondary py-4">Đang tải danh sách nhà thuốc...</td></tr>
-              } @else if (shops.length === 0) {
-                <tr><td colspan="10" class="text-center text-secondary py-4">Không có dữ liệu nhà thuốc.</td></tr>
+              } @else if (displayedShops.length === 0) {
+                <tr>
+                  <td colspan="10" class="text-center text-secondary py-5">
+                    <div class="d-flex flex-column align-items-center justify-content-center">
+                      <span class="fs-1 mb-2">{{ activeTab === 'active' ? '🏥' : '👁️‍🗨️' }}</span>
+                      <span class="fw-semibold">{{ activeTab === 'active' ? 'Không có nhà thuốc nào đang hiển thị.' : 'Chưa có nhà thuốc nào bị ẩn.' }}</span>
+                    </div>
+                  </td>
+                </tr>
               } @else {
-                @for (shop of shops; track shop.code) {
+                @for (shop of displayedShops; track shop.code) {
                   <tr style="border-bottom: 1px solid #f1f5f9;">
                   <td class="px-2 text-center">
                     <span class="badge px-2 py-1" [style.background-color]="shop.province === 'ĐÀ' ? '#e0e7ff' : '#f3e8ff'" [style.color]="shop.province === 'ĐÀ' ? '#4338ca' : '#7e22ce'" style="font-weight: 700; font-size: 11px;">
@@ -97,10 +138,33 @@ export interface ShopListItem {
                     }
                   </td>
                   <td class="px-2 text-center text-nowrap" style="white-space: nowrap !important;">
-                    <div class="d-flex justify-content-center gap-2" style="font-size: 12px; font-weight: 700;">
-                      <a href="javascript:void(0)" class="text-decoration-none" style="color: #059669;">Sửa</a>
-                      <a href="javascript:void(0)" class="text-decoration-none" style="color: #ef4444;">Xoá</a>
-                    </div>
+                    @if (activeTab === 'active') {
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary px-2 py-1 fw-bold rounded-2 d-inline-flex align-items-center gap-1 shadow-2xs"
+                        style="font-size: 11.5px;"
+                        [disabled]="isUpdatingShopCode === shop.code"
+                        (click)="hideShop(shop)"
+                        title="Ẩn nhà thuốc này"
+                      >
+                        <span *ngIf="isUpdatingShopCode !== shop.code">👁️‍🗨️</span>
+                        <span *ngIf="isUpdatingShopCode === shop.code" class="spinner-border spinner-border-sm" role="status"></span>
+                        Ẩn
+                      </button>
+                    } @else {
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-success px-2 py-1 fw-bold rounded-2 text-white d-inline-flex align-items-center gap-1 shadow-2xs"
+                        style="font-size: 11.5px; background-color: #0d472b; border-color: #0d472b;"
+                        [disabled]="isUpdatingShopCode === shop.code"
+                        (click)="unhideShop(shop)"
+                        title="Khôi phục hiển thị nhà thuốc này"
+                      >
+                        <span *ngIf="isUpdatingShopCode !== shop.code">👁️</span>
+                        <span *ngIf="isUpdatingShopCode === shop.code" class="spinner-border spinner-border-sm" role="status"></span>
+                        Hiện lại
+                      </button>
+                    }
                   </td>
                   </tr>
                 }
@@ -110,7 +174,19 @@ export interface ShopListItem {
         </div>
       </div>
       <div class="text-secondary fw-semibold ps-1 mt-2" style="font-size: 13px; color: #6b7280;" *ngIf="!isLoading">
-        Tổng số: {{ shops.length }} nhà thuốc
+        Tổng số: {{ displayedShops.length }} nhà thuốc {{ activeTab === 'active' ? 'đang hiển thị' : 'đã ẩn' }} (Tổng cộng: {{ shops.length }} nhà thuốc)
+      </div>
+
+      <!-- Toast thông báo -->
+      <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1090;" *ngIf="toastMessage">
+        <div class="toast show align-items-center text-white bg-success border-0 shadow-lg rounded-3" role="alert">
+          <div class="d-flex">
+            <div class="toast-body fw-bold d-flex align-items-center gap-2">
+              <span>✓</span> {{ toastMessage }}
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" (click)="toastMessage = ''"></button>
+          </div>
+        </div>
       </div>
     </div>
   `,
@@ -123,26 +199,24 @@ export interface ShopListItem {
     }
 
     :host .table-responsive > .pharmacy-table {
-      width: 1400px !important;
-      min-width: 1400px !important;
-      table-layout: fixed !important;
+      width: 100% !important;
+      min-width: 1100px !important;
     }
 
     .pharmacy-table .province-column { width: 55px; }
-    .pharmacy-table .code-column { width: 110px; }
-    .pharmacy-table .address-column { width: 380px; }
-    .pharmacy-table .phone-column { width: 125px; }
-    .pharmacy-table .open-date-column { width: 140px; }
-    .pharmacy-table .age-column { width: 90px; }
-    .pharmacy-table .phase-column { width: 190px; }
-    .pharmacy-table .target-column { width: 155px; }
+    .pharmacy-table .code-column { width: 105px; }
+    .pharmacy-table .address-column { width: auto; }
+    .pharmacy-table .phone-column { width: 120px; }
+    .pharmacy-table .open-date-column { width: 120px; }
+    .pharmacy-table .age-column { width: 85px; }
+    .pharmacy-table .phase-column { width: 170px; }
+    .pharmacy-table .target-column { width: 145px; }
     .pharmacy-table .gpp-column { width: 75px; }
-    .pharmacy-table .actions-column { width: 80px; }
+    .pharmacy-table .actions-column { width: 95px; }
 
     .pharmacy-table th.address-col,
     .pharmacy-table td.address-col {
-      width: 380px !important;
-      min-width: 380px !important;
+      min-width: 250px !important;
     }
   `]
 })
@@ -164,6 +238,23 @@ export class NhaThuocComponent implements OnInit {
     { province: 'ĐÀ', code: 'SHOP0144', nameAddress: 'Nhà thuốc số 144 - 77-79 Lê Văn Hiến, Phường Ngũ Hành Sơn, Đà Nẵng', phone: '', openDate: '01/01/2025', age: '21 tháng', currentPhase: 'Giai đoạn 1 (Khởi tạo)', targetDsHhs: '0.0 / 0.0', gpp: 'Chưa có GPP' },
   ];
   shops: ShopListItem[] = [];
+  activeTab: 'active' | 'hidden' = 'active';
+  hiddenShopCodes = new Set<string>();
+  isUpdatingShopCode = '';
+  toastMessage = '';
+  private toastTimer: any = null;
+
+  get activeShops(): ShopListItem[] {
+    return this.shops.filter(s => !this.hiddenShopCodes.has(s.code));
+  }
+
+  get hiddenShops(): ShopListItem[] {
+    return this.shops.filter(s => this.hiddenShopCodes.has(s.code));
+  }
+
+  get displayedShops(): ShopListItem[] {
+    return this.activeTab === 'active' ? this.activeShops : this.hiddenShops;
+  }
 
   constructor(
     private upharma: UpharmaService,
@@ -171,7 +262,10 @@ export class NhaThuocComponent implements OnInit {
   ) {}
 
   async ngOnInit() {
-    await this.loadShopsData();
+    await Promise.all([
+      this.loadShopsData(),
+      this.loadHiddenShops()
+    ]);
   }
 
   async loadShopsData() {
@@ -271,5 +365,124 @@ export class NhaThuocComponent implements OnInit {
   cleanAddress(addr: string): string {
     if (!addr) return '—';
     return addr.replace(/^Nhà\s+thuốc\s+số\s+\d+\s*-\s*/i, '').trim();
+  }
+
+  private get uPharmaID(): string {
+    const session = this.upharma.getSession();
+    const id = session?.UserInfo?.uPharmaID;
+    if (id !== undefined && id !== null && String(id).trim() !== '') {
+      return String(id).replace(/[.#$\[\]\/]/g, '_');
+    }
+    return 'default_user';
+  }
+
+  private get storageKey(): string {
+    return `upharma_hidden_shops_${this.uPharmaID}`;
+  }
+
+  private getLocalStorageHidden(): Set<string> {
+    try {
+      const data = localStorage.getItem(this.storageKey);
+      return data ? new Set(JSON.parse(data)) : new Set();
+    } catch {
+      return new Set();
+    }
+  }
+
+  private saveLocalStorageHidden(): void {
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify([...this.hiddenShopCodes]));
+    } catch {}
+  }
+
+  async loadHiddenShops(): Promise<void> {
+    // 1. Tải ngay từ localStorage để hiển thị tức thì
+    this.hiddenShopCodes = this.getLocalStorageHidden();
+
+    // 2. Đồng bộ với Firebase
+    try {
+      const url = `${environment.firebaseDbUrl}/hidden_shops/${this.uPharmaID}.json`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data === 'object') {
+          const remoteCodes = Object.keys(data);
+          for (const c of remoteCodes) {
+            this.hiddenShopCodes.add(c);
+          }
+          this.saveLocalStorageHidden();
+        }
+      }
+    } catch (e) {
+      console.warn('Lỗi khi tải danh sách nhà thuốc ẩn từ Firebase:', e);
+    } finally {
+      this.cdr.detectChanges();
+    }
+  }
+
+  async hideShop(shop: ShopListItem): Promise<void> {
+    this.isUpdatingShopCode = shop.code;
+    // Cập nhật giao diện tức thì
+    this.hiddenShopCodes.add(shop.code);
+    this.saveLocalStorageHidden();
+    this.showToast(`Đã ẩn nhà thuốc ${shop.code} thành công.`);
+    this.cdr.detectChanges();
+
+    // Đồng bộ lên Firebase
+    try {
+      const url = `${environment.firebaseDbUrl}/hidden_shops/${this.uPharmaID}/${shop.code}.json`;
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hidden: true,
+          shopCode: shop.code,
+          nameAddress: shop.nameAddress,
+          updatedAt: new Date().toISOString()
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[Firebase] Không thể ghi trạng thái ẩn (HTTP ${res.status}), đã lưu offline.`);
+      }
+    } catch (e) {
+      console.warn(`[Firebase] Lỗi mạng khi ẩn nhà thuốc ${shop.code}, đã lưu offline:`, e);
+    } finally {
+      this.isUpdatingShopCode = '';
+      this.cdr.detectChanges();
+    }
+  }
+
+  async unhideShop(shop: ShopListItem): Promise<void> {
+    this.isUpdatingShopCode = shop.code;
+    // Cập nhật giao diện tức thì
+    this.hiddenShopCodes.delete(shop.code);
+    this.saveLocalStorageHidden();
+    this.showToast(`Đã khôi phục hiển thị nhà thuốc ${shop.code} thành công.`);
+    this.cdr.detectChanges();
+
+    // Đồng bộ lên Firebase
+    try {
+      const url = `${environment.firebaseDbUrl}/hidden_shops/${this.uPharmaID}/${shop.code}.json`;
+      const res = await fetch(url, {
+        method: 'DELETE'
+      });
+      if (!res.ok) {
+        console.warn(`[Firebase] Không thể xóa trạng thái ẩn (HTTP ${res.status}), đã lưu offline.`);
+      }
+    } catch (e) {
+      console.warn(`[Firebase] Lỗi mạng khi khôi phục nhà thuốc ${shop.code}, đã lưu offline:`, e);
+    } finally {
+      this.isUpdatingShopCode = '';
+      this.cdr.detectChanges();
+    }
+  }
+
+  showToast(msg: string): void {
+    this.toastMessage = msg;
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => {
+      this.toastMessage = '';
+      this.cdr.detectChanges();
+    }, 3000);
   }
 }

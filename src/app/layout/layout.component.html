@@ -64,8 +64,8 @@
     </header>
 
     <!-- Page Content Router Area -->
-    <div class="page-wrapper flex-fill p-3 p-md-4" style="overflow-y: auto;">
-      <div class="container-fluid page-content-wrapper p-0">
+    <div class="page-wrapper flex-fill p-3 p-md-4 position-relative" style="overflow-y: auto;">
+      <div class="container-fluid page-content-wrapper p-0 position-relative">
         <router-outlet (activate)="onActivate($event)" (deactivate)="onDeactivate()"></router-outlet>
       </div>
     </div>

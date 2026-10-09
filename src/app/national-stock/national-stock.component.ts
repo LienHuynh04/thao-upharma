@@ -520,6 +520,9 @@ interface StockGroup {
           </table>
           <div class="ns-empty" *ngIf="groups.length === 0">Không có dữ liệu tồn kho.</div>
         </div>
+        <div class="p-2 px-3 border-top bg-light text-secondary small d-flex justify-content-between align-items-center" *ngIf="view.length > 0">
+          <span>Tổng số: <strong>{{ view.length }}</strong> bản ghi ({{ groups.length }} nhóm loại kho)</span>
+        </div>
       </section>
     </div>
 

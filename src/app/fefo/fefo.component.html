@@ -214,6 +214,9 @@
           </tbody>
         </table>
       </div>
+      <div class="card-footer d-flex align-items-center justify-content-between py-2 px-3 text-secondary small bg-light border-top">
+        <span>Hiển thị <strong>{{ displayedRows.length }}</strong> / <strong>{{ filteredRows.length }}</strong> bản ghi (Tổng cộng: {{ rows.length }} giao dịch)</span>
+      </div>
     </div>
 
     <!-- TAB 2: Tổng hợp theo Nhà thuốc -->
@@ -267,6 +270,9 @@
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="card-footer py-2 px-3 text-secondary small bg-light border-top">
+        <span>Tổng số: <strong>{{ shopSummaries.length }}</strong> nhà thuốc</span>
       </div>
     </div>
 
@@ -330,6 +336,9 @@
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="card-footer py-2 px-3 text-secondary small bg-light border-top">
+        <span>Tổng số: <strong>{{ employeeSummaries.length }}</strong> nhân viên</span>
       </div>
     </div>
   </div>

@@ -26,9 +26,6 @@ export interface RecentSalesRecord {
           @if (isSaving) {
             <span class="badge bg-warning text-dark px-3 py-2 fw-bold">Đang lưu dữ liệu...</span>
           }
-          <button class="btn btn-outline-success btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm d-flex align-items-center gap-1" style="border-color: #10b981; color: #10b981; background: #fff;">
-            <span>📥</span> Import Excel
-          </button>
         </div>
       </div>
 
@@ -151,6 +148,9 @@ export interface RecentSalesRecord {
               }
             </tbody>
           </table>
+        </div>
+        <div class="px-3 py-2 bg-light border-top text-secondary small fw-medium">
+          Tổng số: {{ records.length }} bản ghi
         </div>
       </div>
     </div>

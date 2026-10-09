@@ -532,6 +532,38 @@ header.navbar .btn-ghost-light:focus,
   background: rgba(30, 20, 12, 0.58);
   backdrop-filter: blur(4px);
 }
+@media (min-width: 768px) {
+  .upharma-app-layout .loading-overlay,
+  .upharma-app-layout .stable-detail-overlay {
+    top: 56px;
+    left: 240px;
+  }
+}
+.page-wrapper {
+  position: relative;
+}
+.page-wrapper .loading-overlay,
+.page-wrapper .stable-detail-overlay {
+  position: absolute;
+  inset: 0;
+  min-height: 100%;
+  left: 0;
+  top: 0;
+  z-index: 1060;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(248, 250, 252, 0.85);
+  backdrop-filter: blur(4px);
+}
+.page-wrapper .loading-overlay.is-visible,
+.page-wrapper .stable-detail-overlay.is-visible {
+  display: flex;
+}
+.page-wrapper .loading-box {
+  position: sticky;
+  top: calc(50vh - 120px);
+}
 .loading-overlay.is-visible,
 .stable-detail-overlay.is-visible {
   display: grid;

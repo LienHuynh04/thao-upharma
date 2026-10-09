@@ -40,9 +40,6 @@ export interface EmployeeListItem {
             }
           </select>
 
-          <button class="btn btn-outline-success btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm d-flex align-items-center gap-1" style="border-color: #10b981; color: #10b981; background: #fff; height: 35px;">
-            <span>📥</span> Import Excel
-          </button>
           <button class="btn btn-success btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm d-flex align-items-center gap-1" style="background-color: #0d472b; border-color: #0d472b; height: 35px;" (click)="showAddModal = true">
             <span>+</span> Thêm nhân viên
           </button>
@@ -82,6 +79,34 @@ export interface EmployeeListItem {
           <button type="button" class="btn btn-sm btn-outline-danger text-nowrap" (click)="retryLoadEmployees()" [disabled]="isLoading">Thử tải lại</button>
         </div>
       }
+
+      <!-- KPI Summary Cards -->
+      <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+          <div class="card border-0 shadow-sm rounded-4 p-3 bg-white" style="border: 1px solid #e2e8f0 !important;">
+            <div class="text-secondary small fw-semibold text-uppercase" style="font-size: 11px;">Tổng nhân viên</div>
+            <div class="fs-4 fw-extrabold text-dark mt-1">{{ activeDisplayedEmployeeCount }} <span class="fs-6 text-muted fw-normal">người</span></div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card border-0 shadow-sm rounded-4 p-3 bg-white" style="border: 1px solid #e2e8f0 !important;">
+            <div class="text-secondary small fw-semibold text-uppercase" style="font-size: 11px;">Cửa hàng trưởng (CHT)</div>
+            <div class="fs-4 fw-extrabold mt-1" style="color: #0284c7 !important;">{{ chtCount }} <span class="fs-6 text-muted fw-normal">người</span></div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card border-0 shadow-sm rounded-4 p-3 bg-white" style="border: 1px solid #e2e8f0 !important;">
+            <div class="text-secondary small fw-semibold text-uppercase" style="font-size: 11px;">Nhân viên bán hàng (NVBH)</div>
+            <div class="fs-4 fw-extrabold mt-1" style="color: #0d472b !important;">{{ nvbhCount }} <span class="fs-6 text-muted fw-normal">người</span></div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card border-0 shadow-sm rounded-4 p-3 bg-white" style="border: 1px solid #e2e8f0 !important;">
+            <div class="text-secondary small fw-semibold text-uppercase" style="font-size: 11px;">Tổng bản ghi</div>
+            <div class="fs-4 fw-extrabold text-dark mt-1">{{ displayedEmployees.length }} <span class="fs-6 text-muted fw-normal">bản ghi</span></div>
+          </div>
+        </div>
+      </div>
 
       <!-- Main Data Table Card -->
       <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-3" style="background-color: #ffffff; border: 1px solid #e2e8f0 !important;">
@@ -129,7 +154,7 @@ export interface EmployeeListItem {
         </div>
       </div>
       <div class="text-secondary fw-semibold ps-1" style="font-size: 13px; color: #6b7280;">
-        {{ displayedEmployees.length }} nhân sự ({{ activeDisplayedEmployeeCount }} đang làm)
+        Tổng số bản ghi: {{ displayedEmployees.length }} | Tổng nhân viên đang làm: {{ activeDisplayedEmployeeCount }} ({{ chtCount }} CHT, {{ nvbhCount }} NVBH)
       </div>
     </div>
 
@@ -222,12 +247,80 @@ export class NhanSuComponent implements OnInit {
     return this.employees.filter(e => e.shopCode === this.filterShopCode);
   }
 
-  get activeDisplayedEmployeeCount(): number {
-    const active = this.displayedEmployees.filter(employee => employee.resigned !== 'Đã nghỉ');
-    const uniqueKeys = new Set(
-      active.map(e => (e.code && e.code !== '—' ? e.code : (e.id || e.name)).trim().toLowerCase())
+  isCHT(role: string): boolean {
+    const r = (role || '').toLowerCase();
+    return (
+      r.includes('cửa hàng trưởng') ||
+      r.includes('cht') ||
+      r.includes('trưởng cửa hàng') ||
+      r.includes('quản lý') ||
+      r.includes('qlnt') ||
+      r.includes('trưởng nhà thuốc')
     );
-    return uniqueKeys.size;
+  }
+
+  get uniqueActiveEmployees(): EmployeeListItem[] {
+    const active = this.displayedEmployees.filter(employee => employee.resigned !== 'Đã nghỉ');
+    const map = new Map<string, EmployeeListItem>();
+    for (const emp of active) {
+      const key = (emp.code && emp.code !== '—' ? emp.code : (emp.id || emp.name)).trim().toLowerCase();
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, emp);
+      } else {
+        if (this.isCHT(emp.role)) {
+          map.set(key, emp);
+        }
+      }
+    }
+    return [...map.values()];
+  }
+
+  get chtCount(): number {
+    return this.uniqueActiveEmployees.filter(e => this.isCHT(e.role)).length;
+  }
+
+  get nvbhCount(): number {
+    return Math.max(0, this.uniqueActiveEmployees.length - this.chtCount);
+  }
+
+  get activeDisplayedEmployeeCount(): number {
+    return this.uniqueActiveEmployees.length;
+  }
+
+  /**
+   * Khử trùng dữ liệu nhân sự:
+   * Nếu trùng cả Mã NV và Mã NT thì remove 1 bản ghi.
+   * Nếu một bản ghi là NVBH và một bản ghi là CHT thì ưu tiên giữ CHT.
+   */
+  deduplicateEmployees(list: EmployeeListItem[]): EmployeeListItem[] {
+    const map = new Map<string, EmployeeListItem>();
+    for (const emp of list) {
+      const empCode = (emp.code && emp.code !== '—' ? emp.code : (emp.id || emp.name)).trim().toLowerCase();
+      const shopCode = (emp.shopCode || '').trim().toLowerCase();
+      const key = `${empCode}__${shopCode}`;
+
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, emp);
+      } else {
+        const empIsCht = this.isCHT(emp.role);
+        const existingIsCht = this.isCHT(existing.role);
+
+        if (empIsCht && !existingIsCht) {
+          // Ưu tiên CHT
+          map.set(key, emp);
+        } else if (!empIsCht && existingIsCht) {
+          // Giữ existing vì đã là CHT
+        } else {
+          // Cùng nhóm vai trò: ưu tiên người đang làm hơn người đã nghỉ
+          if (existing.resigned === 'Đã nghỉ' && emp.resigned !== 'Đã nghỉ') {
+            map.set(key, emp);
+          }
+        }
+      }
+    }
+    return [...map.values()];
   }
 
   constructor(
@@ -255,7 +348,8 @@ export class NhanSuComponent implements OnInit {
     try {
       const shop = this.managedShops.find(item => item.ShopCode === shopCode);
       const salesmen = await this.upharma.getSalesmanByShop(shopCode);
-      this.employees = salesmen.map(item => this.mapEmployee(item, shopCode, shop));
+      const mapped = salesmen.map(item => this.mapEmployee(item, shopCode, shop));
+      this.employees = this.deduplicateEmployees(mapped);
     } catch (e) {
       console.error(`Failed to load employees for ${shopCode}:`, e);
       this.loadError = 'Không tải được danh sách nhân sự. Vui lòng thử lại.';
@@ -319,7 +413,8 @@ export class NhanSuComponent implements OnInit {
           ? [{ shopCode: this.managedShops[index].ShopCode, reason: result.reason }]
           : []
       );
-      this.employees = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+      const rawEmployees = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+      this.employees = this.deduplicateEmployees(rawEmployees);
       const failedShops = failedResults.map(result => result.shopCode);
       if (failedShops.length > 0) {
         console.error('Employee list failed for managed shops:', failedResults);
@@ -446,7 +541,7 @@ export class NhanSuComponent implements OnInit {
           ...this.newEmp,
           province: this.newEmp.shopCode.includes('119') || this.newEmp.shopCode.includes('120') || this.newEmp.shopCode.includes('133') ? 'Huế' : 'Đà Nẵng'
         };
-        this.employees.unshift(created);
+        this.employees = this.deduplicateEmployees([created, ...this.employees]);
       }
     } catch (e) {
       console.warn('Error saving employee:', e);

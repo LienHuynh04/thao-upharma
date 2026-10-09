@@ -58,6 +58,9 @@ export interface PromotionListItem {
             </tbody>
           </table>
         </div>
+        <div class="px-3 py-2 bg-light border-top text-secondary small fw-medium">
+          Tổng số: {{ promotions.length }} bản ghi
+        </div>
       </div>
     </div>
   `,

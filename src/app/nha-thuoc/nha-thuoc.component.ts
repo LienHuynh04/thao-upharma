@@ -22,21 +22,16 @@ export interface ShopListItem {
   template: `
     <div class="page-container p-3 p-md-4">
       <!-- Loading Indicator -->
-      <div *ngIf="isLoading" class="alert d-flex align-items-center gap-2 mb-3 rounded-3 shadow-sm" style="background-color: #e8f5e9; border: 1px solid #c8e6c9; color: #0d472b; font-size: 13px;">
-        <span class="spinner-border spinner-border-sm"></span>
-        <span class="fw-bold">Đang tải dữ liệu nhà thuốc từ Upharma API...</span>
+      <div *ngIf="isLoading" class="d-flex flex-column align-items-center justify-content-center py-5" style="min-height: 50vh;">
+        <div class="spinner-border text-success mb-3" style="width: 2.5rem; height: 2.5rem; color: #0d472b !important;" role="status"></div>
+        <div class="fw-bold text-dark fs-5">Đang tải dữ liệu nhà thuốc...</div>
       </div>
 
       <!-- Section Heading -->
-      <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="fs-4 fw-extrabold m-0" style="color: #111827; font-weight: 800;">Danh sách nhà thuốc</h2>
-        <div class="d-flex gap-2">
-          <button class="btn btn-outline-success btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm d-flex align-items-center gap-1" style="border-color: #10b981; color: #10b981; background: #fff;">
-            <span>📥</span> Import Excel
-          </button>
-          <button class="btn btn-success btn-sm fw-bold px-3 py-2 rounded-3 shadow-sm d-flex align-items-center gap-1" style="background-color: #0d472b; border-color: #0d472b;">
-            <span>+</span> Thêm nhà thuốc
-          </button>
+      <div class="d-flex justify-content-between align-items-center mb-4" *ngIf="!isLoading">
+        <div>
+          <h2 class="fs-4 fw-extrabold m-0" style="color: #111827; font-weight: 800;">Danh sách nhà thuốc</h2>
+          <span class="text-muted" style="font-size: 12px;">Hệ thống nhà thuốc Upharma được phân quyền quản lý</span>
         </div>
       </div>
 
@@ -113,6 +108,9 @@ export interface ShopListItem {
             </tbody>
           </table>
         </div>
+      </div>
+      <div class="text-secondary fw-semibold ps-1 mt-2" style="font-size: 13px; color: #6b7280;" *ngIf="!isLoading">
+        Tổng số: {{ shops.length }} nhà thuốc
       </div>
     </div>
   `,

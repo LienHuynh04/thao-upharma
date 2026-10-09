@@ -13,7 +13,12 @@ Chart.register(...registerables);
   standalone: true,
   imports: [CommonModule, FormsModule, RouterLink],
   template: `
-    <div *ngIf="isLoading" class="dashboard-loading" role="status">Đang tải dữ liệu tổng quan...</div>
+    <div *ngIf="isLoading" class="dashboard-loading" role="status">
+      <div class="spinner-border text-success mb-3" style="width: 3rem; height: 3rem;" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <div class="fw-bold text-dark fs-5">Đang tải dữ liệu tổng quan...</div>
+    </div>
     <div *ngIf="dashboardErrorText" class="dashboard-error" role="alert">
       <strong>Không thể tải đủ dữ liệu tổng quan.</strong>
       <span>{{ dashboardErrorText }}</span>
@@ -256,15 +261,15 @@ Chart.register(...registerables);
     }
 
     .dashboard-loading {
-      position: fixed;
-      inset: 56px 0 0;
-      z-index: 20;
-      display: grid;
-      place-items: center;
-      padding: 1rem;
-      background: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 60vh;
+      width: 100%;
+      padding: 3rem 1rem;
+      background: transparent;
       color: #475569;
-      font-weight: 700;
     }
 
     .dashboard-error {

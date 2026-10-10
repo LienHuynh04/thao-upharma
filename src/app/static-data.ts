@@ -1,7 +1,7 @@
 export const STATIC_DATA = {
   user: {
     uPharmaID: 841,
-    FullName: "Dược sĩ Quản lý",
+    FullName: "Phạm Hà Nhật An",
   },
   shops: [
     {

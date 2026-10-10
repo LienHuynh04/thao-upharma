@@ -48,3 +48,15 @@ backend/node_modules/
 backend/.env
 backend/serviceAccountKey.json
 backend/*firebase-adminsdk*.json
+
+# Firebase CLI cache
+.firebase/
+
+# Local sensitive data (orders, inventory, customer phone numbers, tokens)
+src/assets/data/
+
+# Internal API OpenAPI dump & local scripts
+nhathuoc.json
+scripts/claude-sonnet.sh
+.env.claude.local
+

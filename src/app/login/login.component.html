@@ -9,15 +9,15 @@
 
     <form class="login-form" (ngSubmit)="submitLogin()">
       <div class="form-group">
-        <label for="username" class="form-label">Email</label>
+        <label for="username" class="form-label">Số điện thoại</label>
         <input
           id="username"
           name="username"
-          type="text"
+          type="tel"
           class="form-input"
           [(ngModel)]="username"
-          placeholder="Nhập email hoặc tài khoản"
-          autocomplete="username"
+          placeholder="Nhập số điện thoại"
+          autocomplete="tel"
           required
         />
       </div>

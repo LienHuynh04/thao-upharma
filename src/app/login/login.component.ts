@@ -30,7 +30,7 @@ export class LoginComponent implements OnInit {
 
   async submitLogin(): Promise<void> {
     if (!this.username.trim() || !this.password) {
-      this.errorText = "Vui lòng nhập tài khoản/email và mật khẩu";
+      this.errorText = "Vui lòng nhập số điện thoại và mật khẩu";
       return;
     }
 

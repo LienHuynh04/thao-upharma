@@ -120,7 +120,7 @@ export interface ShopListItem {
                   <tr style="border-bottom: 1px solid #f1f5f9;">
                   <td class="px-2 text-center">
                     <span class="badge px-2 py-1" [style.background-color]="shop.province === 'ĐÀ' ? '#e0e7ff' : '#f3e8ff'" [style.color]="shop.province === 'ĐÀ' ? '#4338ca' : '#7e22ce'" style="font-weight: 700; font-size: 11px;">
-                      {{ shop.province }}
+                      {{ shop.province === 'ĐÀ' ? 'ĐN' : 'Huế' }}
                     </span>
                   </td>
                   <td class="px-2 fw-bold text-dark text-nowrap" style="white-space: nowrap !important;">{{ shop.code }}</td>
@@ -203,7 +203,7 @@ export interface ShopListItem {
       min-width: 1100px !important;
     }
 
-    .pharmacy-table .province-column { width: 55px; }
+    .pharmacy-table .province-column { width: 70px; }
     .pharmacy-table .code-column { width: 105px; }
     .pharmacy-table .address-column { width: auto; }
     .pharmacy-table .phone-column { width: 120px; }

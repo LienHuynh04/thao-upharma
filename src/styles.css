@@ -1102,10 +1102,14 @@ table tbody > tr:nth-child(odd) > td {
   background-color: #ffffff !important;
 }
 table tbody > tr:nth-child(even) > td {
-  background-color: #f7f5ff !important;
+  background-color: #166534 !important;
+  color: #ffffff !important;
 }
 table tbody > tr:hover > td {
-  background-color: #eeeaff !important;
+  background-color: #e8f5e9 !important;
+}
+table tbody > tr:nth-child(even):hover > td {
+  background-color: #14532d !important;
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -1421,4 +1425,3 @@ header.navbar .dropdown-item {
   height: 8px !important;
   border-radius: 50rem !important;
 }
-

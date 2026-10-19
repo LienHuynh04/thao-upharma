@@ -8,7 +8,6 @@ export const environment = {
     UserName: "",
     Password: "",
   },
-  excludedShopCodes: ["SHOP0018", "SHOP0040"],
   firebaseDbUrl: "https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app",
   firebaseConfig: {
     apiKey: "AIzaSyC_AmmqLJnC-AAfu6P6qBefj4FtGYuE92s",

@@ -749,9 +749,7 @@ export class UpharmaService {
   }
 
   private setSession(loginData: LoginResponse): void {
-    const filteredShopList = loginData.UserInfo.ShopLst.filter(
-      (shop) => !environment.excludedShopCodes.includes(shop.ShopCode),
-    );
+    const filteredShopList = loginData.UserInfo.ShopLst;
     loginData = {
       ...loginData,
       UserInfo: {

@@ -15,6 +15,8 @@ export interface EmployeeListItem {
   resigned: string;
 }
 
+type EmployeeRole = 'CHT' | 'NVBH' | 'TTS' | 'Thử việc';
+
 @Component({
   selector: 'app-nhan-su',
   standalone: true,
@@ -166,14 +168,23 @@ export interface EmployeeListItem {
                   </td>
                 </tr>
               } @else {
-                @for (emp of displayedEmployees; track (emp.code + '-' + emp.role + '-' + emp.shopCode + '-' + $index)) {
+                @for (emp of displayedEmployees; track getEmployeeKey(emp)) {
                 <tr style="border-bottom: 1px solid #f1f5f9;">
                   <td class="px-3 fw-bold text-dark" style="white-space: nowrap !important;">{{ emp.code }}</td>
                   <td class="px-3 fw-bold text-dark">{{ emp.name }}</td>
                   <td class="px-3" style="white-space: nowrap !important;">
-                    <span class="badge px-2 py-1" style="background-color: #e0e7ff !important; color: #4338ca !important; font-weight: 700; font-size: 11px;">
-                      {{ emp.role }}
-                    </span>
+                    <select
+                      class="form-select form-select-sm"
+                      style="min-width: 140px;"
+                      [ngModel]="emp.role"
+                      [disabled]="updatingRoleEmployeeKey === getEmployeeKey(emp)"
+                      (ngModelChange)="updateEmployeeRole(emp, $event)"
+                      [attr.aria-label]="'Chức danh của ' + emp.name"
+                    >
+                      @for (role of employeeRoleOptions; track role) {
+                        <option [value]="role">{{ role }}</option>
+                      }
+                    </select>
                   </td>
                   <td class="px-3 text-center text-muted" style="white-space: nowrap !important;">{{ emp.shopCode || '—' }}</td>
                   <td class="px-3 fw-semibold text-dark">{{ emp.province }}</td>
@@ -219,8 +230,8 @@ export interface EmployeeListItem {
       </div>
 
       <!-- Toast thông báo -->
-      <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1090;" *ngIf="toastMessage">
-        <div class="toast show align-items-center text-white bg-success border-0 shadow-lg rounded-3" role="alert">
+      <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1090;" *ngIf="toastMessage" aria-live="polite" aria-atomic="true">
+        <div class="toast show align-items-center text-white bg-success border-0 shadow-lg rounded-3" role="status">
           <div class="d-flex">
             <div class="toast-body fw-bold d-flex align-items-center gap-2">
               <span>✓</span> {{ toastMessage }}
@@ -267,10 +278,14 @@ export class NhanSuComponent implements OnInit {
   employees: EmployeeListItem[] = [];
   loadError = '';
   managedShops: ShopInfo[] = [];
+  readonly employeeRoleOptions: EmployeeRole[] = ['CHT', 'NVBH', 'TTS', 'Thử việc'];
+  private readonly employeeRoleOptionSet: ReadonlySet<string> = new Set(this.employeeRoleOptions);
+  private employeeRoleOverrides = new Map<string, EmployeeRole>();
 
   activeTab: 'active' | 'hidden' = 'active';
   hiddenEmployeeKeys = new Set<string>();
   isUpdatingEmpKey = '';
+  updatingRoleEmployeeKey = '';
   toastMessage = '';
   private toastTimer: any = null;
 
@@ -279,6 +294,16 @@ export class NhanSuComponent implements OnInit {
     const shopCode = (emp.shopCode || '').trim().toLowerCase();
     const rawKey = `${empCode}__${shopCode}`;
     return rawKey.replace(/[.#$\[\]\/]/g, '_');
+  }
+
+  private normalizeEmployeeRole(role: unknown): EmployeeRole | null {
+    if (typeof role !== 'string') return null;
+    if (role.toLowerCase().includes('cửa hàng trưởng')) return 'CHT';
+    return this.employeeRoleOptions.find(option => option === role) || null;
+  }
+
+  private isEmployeeRole(role: unknown): role is EmployeeRole {
+    return this.normalizeEmployeeRole(role) !== null;
   }
 
   get filteredByShopEmployees(): EmployeeListItem[] {
@@ -403,7 +428,8 @@ export class NhanSuComponent implements OnInit {
       const shop = this.managedShops.find(item => item.ShopCode === shopCode);
       const salesmen = await this.upharma.getSalesmanByShop(shopCode);
       const mapped = salesmen.map(item => this.mapEmployee(item, shopCode, shop));
-      this.employees = this.deduplicateEmployees(mapped);
+      const employeesWithOverrides = await this.applyEmployeeRoleOverrides(mapped);
+      this.employees = this.deduplicateEmployees(employeesWithOverrides);
     } catch (e) {
       console.error(`Failed to load employees for ${shopCode}:`, e);
       this.loadError = 'Không tải được danh sách nhân sự. Vui lòng thử lại.';
@@ -468,14 +494,16 @@ export class NhanSuComponent implements OnInit {
           : []
       );
       const rawEmployees = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
-      this.employees = this.deduplicateEmployees(rawEmployees);
+      const employeesWithOverrides = await this.applyEmployeeRoleOverrides(rawEmployees);
+      this.employees = this.deduplicateEmployees(employeesWithOverrides);
       const failedShops = failedResults.map(result => result.shopCode);
       if (failedShops.length > 0) {
         console.error('Employee list failed for managed shops:', failedResults);
         const hasForbidden = failedResults.some(result => /HTTP 403|Forbidden/i.test(String(result.reason?.message || result.reason)));
-        this.loadError = hasForbidden
+        const shopLoadError = hasForbidden
           ? `UPharma từ chối quyền truy cập (HTTP 403) với một số nhà thuốc. Đã tải ${this.employees.length} nhân sự; vui lòng đăng nhập lại hoặc kiểm tra quyền quản lý shop.`
           : `Không tải được nhân sự của: ${failedShops.join(', ')}. Đã tải ${this.employees.length} nhân sự; vui lòng thử tải lại.`;
+        this.loadError = [this.loadError, shopLoadError].filter(Boolean).join(' ');
       }
     } catch (err) {
       console.error('Error loading employee workflow:', err);
@@ -501,16 +529,107 @@ export class NhanSuComponent implements OnInit {
     const province = location.includes('huế') || /SHOP0(119|120|133)/.test(shopCode) ? 'Huế' : 'Đà Nẵng';
     const startDate = String(item.TimeStartWork || item.StartDate || item.JoinDate || '');
 
+    const sourceRole = item.UserDefineName || item.RoleName || item.UTypeTxt || item.PositionName || item.JobTitle || item.Title || item.EmRole || item.ChucVu || 'NVBH';
+    const sourceRoleText = String(sourceRole).toLowerCase();
+    const role: EmployeeRole = this.isCHT(sourceRoleText)
+      ? 'CHT'
+      : sourceRoleText.includes('tts') || sourceRoleText.includes('thực tập') || sourceRoleText.includes('intern')
+        ? 'TTS'
+        : sourceRoleText.includes('thử việc') || sourceRoleText.includes('probation')
+          ? 'Thử việc'
+          : 'NVBH';
+
     return {
       id: String(item.EmployeeID || item.uPharmaID || item.DocumentID || item.EmployeeCode || item.EmCode || ''),
       code: item.uPharmaIDCode || item.EmployeeCode || item.EmCode || item.uPharmaID || '—',
       name: item.EmployeeName || item.FullName || 'Nhân viên',
-      role: item.UserDefineName || item.RoleName || item.UTypeTxt || item.PositionName || item.JobTitle || item.Title || item.EmRole || item.ChucVu || 'NVBH',
+      role,
       shopCode: item.ShopCode || shopCode,
       province,
       startDate: startDate ? startDate.slice(0, 10) : '—',
       resigned: item.IsResign === true || Number(item.IsResign) === 1 || String(item.IsResign).toLowerCase() === 'true' ? 'Đã nghỉ' : 'Đang làm'
     };
+  }
+
+  private async applyEmployeeRoleOverrides(employees: EmployeeListItem[]): Promise<EmployeeListItem[]> {
+    try {
+      const url = `${environment.firebaseDbUrl}/employee_role_overrides/${this.uPharmaID}.json`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data: unknown = await response.json();
+      const overrides = new Map<string, EmployeeRole>();
+      if (data !== null) {
+        if (typeof data !== 'object' || Array.isArray(data)) {
+          throw new Error('Unexpected employee role override data format');
+        }
+
+        for (const [employeeKey, value] of Object.entries(data)) {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            throw new Error(`Invalid role override for ${employeeKey}`);
+          }
+
+          const role = this.normalizeEmployeeRole((value as Record<string, unknown>)['role']);
+          if (!role) {
+            throw new Error(`Invalid role override value for ${employeeKey}`);
+          }
+          overrides.set(employeeKey, role);
+        }
+      }
+
+      this.employeeRoleOverrides = overrides;
+      return employees.map(employee => ({
+        ...employee,
+        role: overrides.get(this.getEmployeeKey(employee)) || employee.role
+      }));
+    } catch (error) {
+      console.error('Không tải được chức danh đã chỉnh sửa từ Firebase:', error);
+      const message = 'Không tải được chức danh đã chỉnh sửa từ Firebase; đang hiển thị chức danh gốc. Vui lòng thử tải lại.';
+      this.loadError = [this.loadError, message].filter(Boolean).join(' ');
+      return employees;
+    }
+  }
+
+  async updateEmployeeRole(employee: EmployeeListItem, role: unknown): Promise<void> {
+    if (!this.isEmployeeRole(role) || employee.role === role) return;
+
+    const employeeKey = this.getEmployeeKey(employee);
+    const previousRole = employee.role;
+    this.updatingRoleEmployeeKey = employeeKey;
+    employee.role = role;
+    this.cdr.detectChanges();
+
+    try {
+      const url = `${environment.firebaseDbUrl}/employee_role_overrides/${this.uPharmaID}/${employeeKey}.json`;
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empKey: employeeKey,
+          code: employee.code,
+          name: employee.name,
+          shopCode: employee.shopCode,
+          role,
+          updatedAt: new Date().toISOString()
+        })
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+      }
+
+      this.employeeRoleOverrides.set(employeeKey, role);
+      this.showToast(`Đã lưu chức danh ${employee.name} thành ${role} lên Firebase.`);
+    } catch (error) {
+      console.error(`Không lưu được chức danh nhân viên ${employee.code} lên Firebase:`, error);
+      employee.role = previousRole;
+      const reason = error instanceof Error ? error.message : String(error);
+      this.loadError = `Không lưu được chức danh lên Firebase (${reason}). Thay đổi đã được hoàn tác; vui lòng thử lại.`;
+    } finally {
+      this.updatingRoleEmployeeKey = '';
+      this.cdr.detectChanges();
+    }
   }
 
   // 3. Calling POST /Employee/GetEmployeeInfoByID and POST /Employee/GetInstructorByID for edit

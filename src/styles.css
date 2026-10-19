@@ -1098,19 +1098,6 @@ body.modal-open {
   color: #ffffff !important;
 }
 
-table tbody > tr:nth-child(odd) > td {
-  background-color: #ffffff !important;
-}
-table tbody > tr:nth-child(even) > td {
-  background-color: #e8f5e9 !important;
-}
-table tbody > tr:hover > td {
-  background-color: #d8eee0 !important;
-}
-table tbody > tr:nth-child(even):hover > td {
-  background-color: #c8e6c9 !important;
-}
-
 /* ────────────────────────────────────────────────────────────────
    8. RESPONSIVE RECORD TOGGLE (mobile accordion in tables)
    Đảm bảo nút toggle mobile ẩn hoàn toàn trên desktop

@@ -47,7 +47,7 @@ export class InventorySummaryComponent implements OnInit {
   // ── Bộ lọc ──────────────────────────────────────────────────────
   selectedPeriod = "";
   availablePeriods: { value: string; label: string; year: number; month: number }[] = [];
-  activeProvince: string = "all";
+  selectedShopCode: string = "all";
   searchText = "";
 
   // ── Trạng thái ──────────────────────────────────────────────────
@@ -56,26 +56,25 @@ export class InventorySummaryComponent implements OnInit {
   todayDisplay = "";
 
   // ── Getters ─────────────────────────────────────────────────────
-  get provincesList(): string[] {
+  get shopCodesList(): string[] {
     const set = new Set<string>();
     for (const r of this.shopRows) {
-      if (r.province) set.add(r.province);
+      if (r.shopCode) set.add(r.shopCode);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, "vi"));
   }
 
   get filteredRows(): ShopOverviewItem[] {
     let list = this.shopRows;
-    if (this.activeProvince !== "all") {
-      list = list.filter((r) => r.province.toLowerCase() === this.activeProvince.toLowerCase());
+    if (this.selectedShopCode !== "all") {
+      list = list.filter((r) => r.shopCode.toLowerCase() === this.selectedShopCode.toLowerCase());
     }
     if (this.searchText && this.searchText.trim()) {
       const q = this.searchText.toLowerCase().trim();
       list = list.filter(
         (r) =>
           r.shopCode.toLowerCase().includes(q) ||
-          r.shopName.toLowerCase().includes(q) ||
-          r.province.toLowerCase().includes(q),
+          r.shopName.toLowerCase().includes(q),
       );
     }
     return list;
@@ -149,9 +148,13 @@ export class InventorySummaryComponent implements OnInit {
     void this.fetchOverviewData();
   }
 
-  setProvinceFilter(prov: string): void {
-    this.activeProvince = prov;
+  setShopFilter(code: string): void {
+    this.selectedShopCode = code;
     this.cdr.detectChanges();
+  }
+
+  setProvinceFilter(code: string): void {
+    this.setShopFilter(code);
   }
 
   applyFilter(): void {

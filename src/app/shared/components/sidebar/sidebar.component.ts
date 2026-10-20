@@ -233,6 +233,7 @@ export class SidebarComponent implements OnInit {
 
   menuItems: SidebarMenuItem[] = [
     { label: 'Tổng Quan', icon: '▦', route: '/dashboard' },
+    { label: 'Tồn Kho & HHS', icon: '📦', route: '/ton-kho-summary' },
     { label: 'Nhà Thuốc', icon: '🏪', route: '/nha-thuoc' },
     { label: 'Nhân Sự', icon: '👥', route: '/nhan-su' },
     { label: 'OKR', icon: '🎯', route: '/okr' },

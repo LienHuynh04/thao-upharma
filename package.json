@@ -8,7 +8,10 @@
     "deploy:firebase": "ng build --configuration production && npx firebase-tools deploy --only hosting",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "serve:ssr:thao-upharma": "node dist/thao-upharma/server/server.mjs"
+    "serve:ssr:thao-upharma": "node dist/thao-upharma/server/server.mjs",
+    "cron:inventory": "node scripts/cron-sync-inventory.js",
+    "cron:inventory:daemon": "node scripts/cron-sync-inventory.js --daemon",
+    "sync:data": "node scripts/fetch-upharma-data.js"
   },
   "private": true,
   "packageManager": "npm@12.1.0",

@@ -1411,3 +1411,83 @@ header.navbar .dropdown-item {
   height: 8px !important;
   border-radius: 50rem !important;
 }
+
+/* ────────────────────────────────────────────────────────────────
+   INVENTORY SUMMARY PAGE — Summary cards & Expiry KPI
+   ──────────────────────────────────────────────────────────────── */
+
+/* Summary card chung */
+.summary-card {
+  border: 1px solid var(--upharma-border);
+  border-radius: 8px;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.summary-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+  border-color: rgba(var(--tblr-primary-rgb), 0.3) !important;
+}
+
+.summary-card.is-active {
+  border-color: var(--tblr-primary) !important;
+  box-shadow: 0 0 0 3px rgba(var(--tblr-primary-rgb), 0.12) !important;
+  transform: translateY(-1px);
+}
+
+/* Spin animation cho nút refresh */
+.spin {
+  animation: spin 0.7s linear infinite;
+}
+
+/* Placeholder skeleton pulse */
+.placeholder-glow .placeholder {
+  background-color: var(--upharma-border) !important;
+  opacity: 0.7;
+}
+
+/* Progress bar enhancements trong summary page */
+.list-group-item .progress {
+  background-color: var(--upharma-border);
+}
+
+/* HHS metric border boxes */
+.col-6 .border.rounded {
+  border-color: var(--upharma-border) !important;
+  background-color: var(--upharma-bg);
+}
+
+/* Mobile responsive cho summary cards */
+@media (max-width: 575.98px) {
+  div[aria-label="Thống kê hạn dùng"] > div {
+    width: 50% !important;
+    flex: 0 0 50% !important;
+    max-width: 50% !important;
+  }
+}
+
+/* ── expiry-kpi-card: dùng trong trang inventory-summary ── */
+.expiry-kpi-card {
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.expiry-kpi-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+}
+
+.expiry-kpi-card.is-active {
+  border-color: var(--tblr-primary) !important;
+  background: rgba(201, 140, 31, 0.06) !important;
+  box-shadow: 0 0 10px rgba(201, 140, 31, 0.2) !important;
+}
+
+.expiry-kpi-card.is-active::before {
+  content: "✓";
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  color: var(--tblr-primary);
+  font-size: 10px;
+  font-weight: bold;
+}

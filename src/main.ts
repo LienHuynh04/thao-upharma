@@ -122,6 +122,11 @@ const routes: Routes = [
         title: "UPHARMA - Tồn kho",
       },
       {
+        path: "ton-kho-summary",
+        loadComponent: () => import("./app/inventory-summary/inventory-summary.component").then((m) => m.InventorySummaryComponent),
+        title: "UPHARMA - Tồn kho & HHS",
+      },
+      {
         path: "fefo",
         loadComponent: () => import("./app/fefo/fefo.component").then((m) => m.FefoComponent),
         title: "UPHARMA - Kiểm tra FEFO",

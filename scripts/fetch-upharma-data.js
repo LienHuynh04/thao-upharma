@@ -214,8 +214,8 @@ function getResourceConfig(resourceName, now = new Date()) {
 
   const configs = {
     inventory: {
-      pathname: "/LocalStore/GetInventoryByShopID",
-      payload: () => ({ ProductID: "", LotCode: "", StoreType: "" }),
+      pathname: "/LocalStore/GetInventoryShop",
+      payload: () => ({ BranchLst: "", ProductID: "", LotCode: "", PackageID: null, StoreType: "" }),
     },
     invoices: {
       pathname: "/InvoiceOnline/GetInvoiceOrderOnByTime",
@@ -464,6 +464,7 @@ async function run() {
   };
 
   const resources = [
+    'inventory',
     'shop_plan',
     'employees_detail',
     'sales_report',
@@ -494,6 +495,38 @@ async function run() {
           __shopCode: shop.ShopCode,
           __shopName: shop.ShopName,
         }));
+
+        if (resourceName === 'inventory') {
+          mappedArray = mappedArray.filter((item) => {
+            // 1. Loại trừ kho tổng / kho phụ
+            const storeCode = String(item.StoreCode || item.ShopCode || item.BranchCode || "").toUpperCase().trim();
+            const storeName = String(item.StoreName || item.ShopName || item.BranchName || item.__shopName || "").toLowerCase().trim();
+            const storeType = String(item.StoreType || "").toLowerCase().trim();
+
+            if (storeType.includes("kho")) return false;
+            if (storeCode === "DN" || storeCode.startsWith("KHO_") || storeCode.startsWith("KHO") || storeCode.startsWith("K_")) return false;
+            if (
+              storeName.startsWith("kho ") ||
+              storeName.startsWith("kho.") ||
+              storeName.startsWith("kho-") ||
+              storeName.includes("kho tổng") ||
+              storeName.includes("kho chi nhánh") ||
+              storeName.includes("kho tong") ||
+              storeName.includes("kho chi nhanh")
+            ) {
+              return false;
+            }
+
+            // 2. Loại trừ Voucher
+            const pCode = String(item.ProductCode || item.ProductID || item.MaSP || "").toUpperCase().trim();
+            const pName = String(item.ProductName || item.Product_Name || item.TenSP || "").toUpperCase().trim();
+            if (pCode.includes("VOUCHER") || pName.includes("VOUCHER") || pCode.startsWith("VC")) {
+              return false;
+            }
+
+            return true;
+          });
+        }
 
         if (resourceName === 'key_products') {
           const expanded = [];

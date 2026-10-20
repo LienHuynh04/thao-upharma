@@ -1,0 +1,374 @@
+<!-- ================================================================
+   TRANG TỒN KHO & HHS — UI giống ton-kho-chi-tiet, per-shop tabs
+   Không có bảng sản phẩm | Có nút đồng bộ → Firebase
+   ================================================================ -->
+
+<!-- ─── Page Header ─────────────────────────────────────────────── -->
+<div class="page-header d-print-none">
+  <div class="container-xl">
+    <div class="row g-2 align-items-center">
+      <div class="col">
+        <div class="page-pretitle">QUẢN LÝ TỒN KHO</div>
+        <h2 class="page-title">Tồn kho & Hệ số DS</h2>
+      </div>
+      <div class="col-12 col-md-auto ms-md-auto mt-2 mt-md-0 d-print-none">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <!-- Tháng/Năm cho HHS -->
+          <div class="d-inline-flex align-items-center gap-1">
+            <span class="text-label-caps">Tháng</span>
+            <select class="form-select form-select-sm" [(ngModel)]="selectedMonth"
+              (ngModelChange)="onPeriodChange()" style="width:auto;min-width:60px;">
+              <option *ngFor="let m of months" [ngValue]="m">{{ m }}</option>
+            </select>
+          </div>
+          <div class="d-inline-flex align-items-center gap-1">
+            <span class="text-label-caps">Năm</span>
+            <select class="form-select form-select-sm" [(ngModel)]="selectedYear"
+              (ngModelChange)="onPeriodChange()" style="width:auto;min-width:80px;">
+              <option *ngFor="let y of years" [ngValue]="y">{{ y }}</option>
+            </select>
+          </div>
+          <!-- Đồng bộ → Firebase -->
+          <button class="btn btn-sm btn-success d-flex align-items-center gap-1"
+                  (click)="syncToFirebase()"
+                  [disabled]="isSyncing || isInventoryLoading"
+                  title="Lấy dữ liệu từ API và đẩy lên Firebase">
+            <i class="ti" [class.ti-cloud-upload]="!isSyncing" [class.ti-loader]="isSyncing"
+               [class.spin]="isSyncing"></i>
+            {{ isSyncing ? syncStatus : 'Đồng bộ → Firebase' }}
+          </button>
+          <!-- Tải lại (đọc từ Firebase cache) -->
+          <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1"
+                  (click)="reload()"
+                  [disabled]="isInventoryLoading">
+            <i class="ti ti-refresh" [class.spin]="isInventoryLoading"></i>
+            Tải lại
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+  <div class="container-xl">
+
+    <!-- ── Lỗi / Thành công ─────────────────────────────────── -->
+    <div class="alert alert-danger d-flex align-items-center gap-2 mb-3" *ngIf="errorText" role="alert">
+      <i class="ti ti-alert-circle"></i><span>{{ errorText }}</span>
+    </div>
+    <div class="alert alert-success d-flex align-items-center gap-2 mb-3" *ngIf="successText" role="alert">
+      <i class="ti ti-circle-check"></i><span>{{ successText }}</span>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════
+         PHẦN 1: KPI CARDS — Hạn dùng (giống screenshot)
+         ══════════════════════════════════════════════════════════ -->
+    <div class="row row-deck row-cards mb-3" aria-label="Thống kê hạn dùng">
+      <!-- Tất cả -->
+      <div class="col-6 col-sm-4 col-lg-2">
+        <div class="card h-100 expiry-kpi-card"
+             [class.is-active]="activeExpiryFilter === 'all'"
+             (click)="setExpiryFilter('all')" style="cursor:pointer;">
+          <div class="card-status-start bg-primary"></div>
+          <div class="card-body">
+            <div class="text-secondary font-weight-medium">Tất cả</div>
+            <div class="h2 mt-2 mb-1">{{ activeShopSummary?.totalProducts ?? 0 }}</div>
+            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.totalValue ?? 0) }} VNĐ</small></div>
+            <div class="text-secondary"><small class="expiry-rate">100,00%</small></div>
+          </div>
+        </div>
+      </div>
+      <!-- Hết hạn -->
+      <div class="col-6 col-sm-4 col-lg-2">
+        <div class="card h-100 expiry-kpi-card"
+             [class.is-active]="activeExpiryFilter === 'expired'"
+             (click)="setExpiryFilter('expired')" style="cursor:pointer;">
+          <div class="card-status-start bg-danger"></div>
+          <div class="card-body">
+            <div class="text-secondary font-weight-medium">Hết hạn</div>
+            <div class="h2 mt-2 mb-1 text-danger">{{ activeShopSummary?.expiredCount ?? 0 }}</div>
+            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.expiredValue ?? 0) }} VNĐ</small></div>
+            <div class="text-secondary"><small class="expiry-rate">{{ activeShopSummary?.expiredRate ?? '0,00' }}%</small></div>
+          </div>
+        </div>
+      </div>
+      <!-- 3 Tháng -->
+      <div class="col-6 col-sm-4 col-lg-2">
+        <div class="card h-100 expiry-kpi-card"
+             [class.is-active]="activeExpiryFilter === 'danger'"
+             (click)="setExpiryFilter('danger')" style="cursor:pointer;">
+          <div class="card-status-start bg-danger"></div>
+          <div class="card-body">
+            <div class="text-secondary font-weight-medium">3 Tháng</div>
+            <div class="h2 mt-2 mb-1 text-danger">{{ activeShopSummary?.dangerCount ?? 0 }}</div>
+            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.dangerValue ?? 0) }} VNĐ</small></div>
+            <div class="text-secondary"><small class="expiry-rate">{{ activeShopSummary?.dangerRate ?? '0,00' }}%</small></div>
+          </div>
+        </div>
+      </div>
+      <!-- 6 Tháng -->
+      <div class="col-6 col-sm-4 col-lg-2">
+        <div class="card h-100 expiry-kpi-card"
+             [class.is-active]="activeExpiryFilter === 'warning'"
+             (click)="setExpiryFilter('warning')" style="cursor:pointer;">
+          <div class="card-status-start bg-warning"></div>
+          <div class="card-body">
+            <div class="text-secondary font-weight-medium">6 Tháng</div>
+            <div class="h2 mt-2 mb-1 text-warning">{{ activeShopSummary?.warningCount ?? 0 }}</div>
+            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.warningValue ?? 0) }} VNĐ</small></div>
+            <div class="text-secondary"><small class="expiry-rate">{{ activeShopSummary?.warningRate ?? '0,00' }}%</small></div>
+          </div>
+        </div>
+      </div>
+      <!-- 1 Năm -->
+      <div class="col-6 col-sm-4 col-lg-2">
+        <div class="card h-100 expiry-kpi-card"
+             [class.is-active]="activeExpiryFilter === 'safe'"
+             (click)="setExpiryFilter('safe')" style="cursor:pointer;">
+          <div class="card-status-start bg-success"></div>
+          <div class="card-body">
+            <div class="text-secondary font-weight-medium">1 Năm</div>
+            <div class="h2 mt-2 mb-1 text-success">{{ activeShopSummary?.safeCount ?? 0 }}</div>
+            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.safeValue ?? 0) }} VNĐ</small></div>
+            <div class="text-secondary"><small class="expiry-rate">{{ activeShopSummary?.safeRate ?? '0,00' }}%</small></div>
+          </div>
+        </div>
+      </div>
+      <!-- Hàng bình thường -->
+      <div class="col-6 col-sm-4 col-lg-2">
+        <div class="card h-100 expiry-kpi-card"
+             [class.is-active]="activeExpiryFilter === 'normal'"
+             (click)="setExpiryFilter('normal')" style="cursor:pointer;">
+          <div class="card-status-start bg-info"></div>
+          <div class="card-body">
+            <div class="text-secondary font-weight-medium">Hàng bình thường</div>
+            <div class="h2 mt-2 mb-1">{{ activeShopSummary?.normalCount ?? 0 }}</div>
+            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.normalValue ?? 0) }} VNĐ</small></div>
+            <div class="text-secondary"><small class="expiry-rate">{{ activeShopSummary?.normalRate ?? '0,00' }}%</small></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════
+         PHẦN 2: SHOP TABS (giống screenshot)
+         ══════════════════════════════════════════════════════════ -->
+    <div class="card mb-3" *ngIf="shopSummaries.length > 0">
+      <div class="card-header p-0">
+        <ul class="nav nav-tabs card-header-tabs nav-fill w-100 m-0">
+          <li class="nav-item" *ngFor="let shop of shopSummaries; trackBy: trackByShop">
+            <a href="javascript:void(0)"
+               class="nav-link py-3"
+               [class.active]="shop.shopCode === activeShopCode"
+               (click)="setActiveShop(shop.shopCode)">
+              <i class="ti ti-building-store me-2" style="font-size:1.15rem;"></i>
+              <strong>{{ shop.shopCode }}</strong>
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════
+         PHẦN 3: HHS PER SHOP (cho shop đang active)
+         ══════════════════════════════════════════════════════════ -->
+    <div class="row g-3">
+      <!-- HHS Card -->
+      <div class="col-12 col-lg-8">
+        <div class="card h-100">
+          <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <h3 class="card-title m-0">
+              <i class="ti ti-chart-bar me-2 text-primary"></i>
+              Hệ số Doanh số — {{ activeShopCode }} — Tháng {{ selectedMonth }}/{{ selectedYear }}
+            </h3>
+            <span class="badge"
+                  [class.bg-success-lt]="activeHhs?.salesPercent >= 100"
+                  [class.text-success]="activeHhs?.salesPercent >= 100"
+                  [class.bg-warning-lt]="activeHhs && activeHhs.salesPercent >= 80 && activeHhs.salesPercent < 100"
+                  [class.text-warning]="activeHhs && activeHhs.salesPercent >= 80 && activeHhs.salesPercent < 100"
+                  [class.bg-danger-lt]="activeHhs && activeHhs.salesPercent < 80"
+                  [class.text-danger]="activeHhs && activeHhs.salesPercent < 80"
+                  *ngIf="activeHhs">
+              {{ activeHhs.salesPercent | number:'1.0-1' }}% DS
+            </span>
+          </div>
+
+          <!-- Loading HHS -->
+          <div class="card-body" *ngIf="isHhsLoading">
+            <div class="placeholder-glow">
+              <div class="placeholder col-12 mb-3" style="height:100px;border-radius:8px;"></div>
+            </div>
+          </div>
+
+          <!-- HHS Data -->
+          <div class="card-body" *ngIf="!isHhsLoading && activeHhs">
+            <div class="row g-3">
+              <!-- DS thực tế -->
+              <div class="col-6 col-md-3">
+                <div class="text-label-caps mb-2">DS Thực tế</div>
+                <div class="h3 text-primary">{{ formatMoney(activeHhs.amountR) }}</div>
+                <div class="text-muted small">/ {{ formatMoney(activeHhs.amount) }} ₫ KH</div>
+                <div class="progress mt-2" style="height:6px;">
+                  <div class="progress-bar"
+                       [class.bg-success]="activeHhs.salesPercent >= 100"
+                       [class.bg-warning]="activeHhs.salesPercent >= 80 && activeHhs.salesPercent < 100"
+                       [class.bg-danger]="activeHhs.salesPercent < 80"
+                       [style.width.%]="min(activeHhs.salesPercent, 100)"></div>
+                </div>
+                <div class="text-muted small mt-1">{{ activeHhs.salesPercent | number:'1.0-1' }}% đạt</div>
+              </div>
+              <!-- HHS điểm -->
+              <div class="col-6 col-md-3">
+                <div class="text-label-caps mb-2">Điểm HHS</div>
+                <div class="h3 text-primary">{{ activeHhs.hhsR | number:'1.0-0' }}</div>
+                <div class="text-muted small">/ {{ activeHhs.hhs | number:'1.0-0' }} điểm KH</div>
+                <div class="progress mt-2" style="height:6px;">
+                  <div class="progress-bar bg-info"
+                       [style.width.%]="min(activeHhs.hhsPercent, 100)"></div>
+                </div>
+                <div class="text-muted small mt-1">{{ activeHhs.hhsPercent | number:'1.0-1' }}% đạt</div>
+              </div>
+              <!-- Tỉ trọng HHS% -->
+              <div class="col-6 col-md-3">
+                <div class="text-label-caps mb-2">Tỉ trọng HHS</div>
+                <div class="h3"
+                     [class.text-success]="activeHhs.hhsRatio >= activeHhs.hhsRatioTarget"
+                     [class.text-danger]="activeHhs.hhsRatio < activeHhs.hhsRatioTarget">
+                  {{ activeHhs.hhsRatio | number:'1.0-1' }}%
+                </div>
+                <div class="text-muted small">/ {{ activeHhs.hhsRatioTarget | number:'1.0-1' }}% KH</div>
+                <div class="text-muted small mt-2">
+                  {{ formatMoney(activeHhs.hhsR * 1000) }} ₫ hàng HHS
+                </div>
+              </div>
+              <!-- Dự kiến cuối tháng -->
+              <div class="col-6 col-md-3">
+                <div class="text-label-caps mb-2">Dự kiến cuối tháng</div>
+                <div class="h3 text-secondary">{{ formatMoney(activeHhs.projectedAmount) }}</div>
+                <div class="text-muted small">/ {{ formatMoney(activeHhs.amount) }} ₫ KH</div>
+                <div class="text-muted small mt-2">
+                  <i class="ti ti-clock me-1"></i>{{ daysElapsed }} / {{ totalDaysInMonth }} ngày
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- HHS empty -->
+          <div class="card-body text-center py-5 text-muted"
+               *ngIf="!isHhsLoading && !activeHhs">
+            <i class="ti ti-chart-bar-off" style="font-size:2rem;"></i>
+            <div class="mt-2 small">Không có dữ liệu HHS tháng {{ selectedMonth }}/{{ selectedYear }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tồn kho summary card -->
+      <div class="col-12 col-lg-4">
+        <div class="card h-100">
+          <div class="card-header">
+            <h3 class="card-title m-0">
+              <i class="ti ti-package me-2 text-primary"></i>
+              Tổng quan tồn kho — {{ activeShopCode }}
+            </h3>
+          </div>
+          <div class="card-body p-0" *ngIf="activeShopSummary">
+            <div class="list-group list-group-flush">
+              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
+                <span class="d-flex align-items-center gap-2">
+                  <span class="badge bg-primary" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
+                  Tổng sản phẩm
+                </span>
+                <strong>{{ activeShopSummary.totalProducts }}</strong>
+              </div>
+              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
+                <span class="d-flex align-items-center gap-2 text-danger">
+                  <span class="badge bg-danger" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
+                  Hết hạn
+                </span>
+                <span class="fw-bold text-danger">{{ activeShopSummary.expiredCount }}</span>
+              </div>
+              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
+                <span class="d-flex align-items-center gap-2 text-danger">
+                  <span class="badge bg-danger" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
+                  Cận date ≤ 3 tháng
+                </span>
+                <span class="fw-bold text-danger">{{ activeShopSummary.dangerCount }}</span>
+              </div>
+              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
+                <span class="d-flex align-items-center gap-2 text-warning">
+                  <span class="badge bg-warning" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
+                  Cần chú ý 3–6 tháng
+                </span>
+                <span class="fw-bold text-warning">{{ activeShopSummary.warningCount }}</span>
+              </div>
+              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
+                <span class="d-flex align-items-center gap-2 text-success">
+                  <span class="badge bg-success" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
+                  An toàn 6–12 tháng
+                </span>
+                <span class="fw-bold text-success">{{ activeShopSummary.safeCount }}</span>
+              </div>
+              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
+                <span class="d-flex align-items-center gap-2">
+                  <span class="badge bg-info" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
+                  Bình thường (>1 năm)
+                </span>
+                <strong>{{ activeShopSummary.normalCount }}</strong>
+              </div>
+              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3 bg-light">
+                <span class="fw-semibold">Tổng giá trị tồn kho</span>
+                <strong class="text-primary">{{ formatMoney(activeShopSummary.totalValue) }} ₫</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Loading skeleton -->
+          <div class="card-body" *ngIf="isInventoryLoading">
+            <div class="placeholder-glow">
+              <div class="placeholder col-12 mb-2" style="height:32px;border-radius:4px;" *ngFor="let _ of [1,2,3,4,5,6]"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync log (hiện khi đang sync) -->
+    <div class="card mt-3" *ngIf="syncLogs.length > 0">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h3 class="card-title m-0">
+          <i class="ti ti-terminal me-2"></i>Log đồng bộ Firebase
+        </h3>
+        <button class="btn btn-sm btn-ghost-secondary" (click)="syncLogs = []">Xóa log</button>
+      </div>
+      <div class="card-body p-0">
+        <div class="list-group list-group-flush" style="max-height:200px; overflow-y:auto;">
+          <div class="list-group-item py-2 px-3 small font-monospace"
+               *ngFor="let log of syncLogs"
+               [class.text-danger]="log.type === 'error'"
+               [class.text-success]="log.type === 'success'"
+               [class.text-muted]="log.type === 'info'">
+            <i class="ti me-1"
+               [class.ti-circle-check]="log.type === 'success'"
+               [class.ti-alert-circle]="log.type === 'error'"
+               [class.ti-info-circle]="log.type === 'info'"></i>
+            {{ log.message }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /container-xl -->
+</div><!-- /page-body -->
+
+<!-- Loading overlay -->
+<div class="loading-overlay" [class.is-visible]="isInventoryLoading && shopSummaries.length === 0" aria-live="polite">
+  <div class="loading-box">
+    <span class="loader" aria-hidden="true"></span>
+    <strong>{{ loadingTitle || 'Đang tải dữ liệu tồn kho...' }}</strong>
+    <div class="loading-progress" aria-hidden="true">
+      <i [style.width.%]="loadingProgressPercent"></i>
+    </div>
+    <span class="loading-progress-percent">{{ loadingProgressPercent }}%</span>
+  </div>
+</div>

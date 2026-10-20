@@ -242,6 +242,7 @@ async function runSyncTask() {
     let totalSyncedShops = 0;
     let totalInventoryRecords = 0;
     const overviewItems = [];
+    const inventoryByShop = {};
 
     // Lặp qua từng nhà thuốc
     for (const shop of shops) {
@@ -276,10 +277,10 @@ async function runSyncTask() {
             return true;
           })
           .map((item) => {
-            const expRaw = item.ExpDate || item.ExpireDate || item.HanDung || item.HSD || "";
+            const expRaw = item.ExpirationDate || item.ExpDate || item.ExpireDate || item.HanDung || item.HSD || "";
             const { status, days } = classifyExpiry(expRaw);
             const qty = Number(item.Quantity || item.Qty || item.TonKho || item.SL) || 0;
-            const price = Number(item.Price || item.GiaBan || item.RetailPrice) || 0;
+            const price = Number(item.UnitPrice || item.Price || item.GiaBan || item.RetailPrice || item.BasePrice) || 0;
 
             return {
               ...item,
@@ -296,21 +297,6 @@ async function runSyncTask() {
           });
 
         console.log(`[CRON] ✓ Lọc được ${filteredList.length} sản phẩm tồn kho (gốc: ${rawList.length}).`);
-
-        // Đẩy Tồn kho lên Firebase
-        await writeToFirebase(`shops/${shop.ShopCode}/upharma_data/inventory`, {
-          success: true,
-          resource: "inventory",
-          shop: { ShopCode: shop.ShopCode, ShopName: shop.ShopName },
-          count: filteredList.length,
-          data: filteredList,
-          fetchedAt: new Date().toISOString(),
-          updatedAt: Date.now(),
-        });
-
-        // Ghi bản gộp upharma_data/inventory/data/{ShopCode}
-        await writeToFirebase(`upharma_data/inventory/data/${shop.ShopCode}`, filteredList);
-
         totalInventoryRecords += filteredList.length;
       } catch (invErr) {
         console.error(`[CRON] ✗ Lỗi tải tồn kho shop ${shop.ShopCode}:`, invErr.message);
@@ -399,37 +385,69 @@ async function runSyncTask() {
       const dateUnder12MValue = itemsUnder12M.reduce((s, i) => s + (Number(i.stockValue) || 0), 0);
       const dateUnder12MRate = totalStockVal > 0 ? (dateUnder12MValue / totalStockVal) * 100 : 0;
 
-      overviewItems.push({
-        province: extractProvince(shop.ShopName),
+      const province = extractProvince(shop.ShopName);
+      const r3 = totalStockVal > 0 ? Number(((dateUnder3MValue / totalStockVal) * 100).toFixed(2)) : 0;
+      const r6 = totalStockVal > 0 ? Number(((dateUnder6MValue / totalStockVal) * 100).toFixed(2)) : 0;
+      const r12 = totalStockVal > 0 ? Number(((dateUnder12MValue / totalStockVal) * 100).toFixed(2)) : 0;
+
+      const shopSummaryItem = {
+        Date_3th: dateUnder3MValue,
+        Date_6th: dateUnder6MValue,
+        Date_12th: dateUnder12MValue,
+        Total: totalStockVal,
+        Date_3th_Rate: r3,
+        Date_6th_Rate: r6,
+        Date_12th_Rate: r12,
+        ShopCode: shop.ShopCode,
+        ShopName: shop.ShopName,
+        Province: province,
+        // CamelCase aliases để tương thích toàn bộ hệ thống
         shopCode: shop.ShopCode,
         shopName: shop.ShopName,
+        province: province,
         totalStockValue: totalStockVal,
         dateUnder3MValue,
-        dateUnder3MRate: Number(dateUnder3MRate.toFixed(2)),
+        dateUnder3MRate: r3,
         dateUnder6MValue,
-        dateUnder6MRate: Number(dateUnder6MRate.toFixed(2)),
+        dateUnder6MRate: r6,
         dateUnder12MValue,
-        dateUnder12MRate: Number(dateUnder12MRate.toFixed(2)),
-      });
+        dateUnder12MRate: r12,
+      };
+
+      inventoryByShop[shop.ShopCode] = shopSummaryItem;
+      overviewItems.push(shopSummaryItem);
+
+      // Đẩy tồn kho rút gọn của shop lên Firebase (không chứa mảng chi tiết sản phẩm)
+      await writeToFirebase(`shops/${shop.ShopCode}/upharma_data/inventory`, shopSummaryItem);
 
       totalSyncedShops++;
     }
 
-    // ── GHI TOÀN BỘ BẢNG TỔNG QUAN LÊN FIREBASE RTDB ─────────────────────
+    // ── GHI TOÀN BỘ INVENTORY VÀ TỔNG QUAN LÊN FIREBASE RTDB ─────────────────────
+    // 1. Ghi inventory.json dạng { [ShopCode]: { Date_3th, Date_6th, ... } }
+    await writeToFirebase("inventory", inventoryByShop);
+    await writeToFirebase("upharma_data/inventory", inventoryByShop);
+    console.log(`[CRON] ✓ Đã lưu ${Object.keys(inventoryByShop).length} nhà thuốc vào inventory và upharma_data/inventory trên Firebase!`);
+
+    // 2. Ghi shops_inventory_overview dạng bảng tổng hợp
     const overviewPayload = {
       updatedAt: Date.now(),
       fetchedAt: new Date().toISOString(),
       month: targetMonthStr,
       totalShops: overviewItems.length,
       items: overviewItems,
+      byShop: inventoryByShop,
     };
     await writeToFirebase("shops_inventory_overview", overviewPayload);
     await writeToFirebase("upharma_data/shops_inventory_overview", overviewPayload);
     console.log(`[CRON] ✓ Đã lưu ${overviewItems.length} nhà thuốc vào shops_inventory_overview trên Firebase!`);
 
-    // Đánh dấu hoàn tất gộp
-    await writeToFirebase(`upharma_data/inventory/success`, true);
-    await writeToFirebase(`upharma_data/inventory/fetchedAt`, new Date().toISOString());
+    // 3. Cập nhật file cục bộ src/assets/data/inventory.json dạng rút gọn
+    const localDataDir = path.join(__dirname, "..", "src", "assets", "data");
+    if (fs.existsSync(localDataDir)) {
+      fs.writeFileSync(path.join(localDataDir, "inventory.json"), JSON.stringify(inventoryByShop, null, 2));
+      console.log(`[CRON] ✓ Đã ghi cấu trúc rút gọn vào src/assets/data/inventory.json!`);
+    }
 
     console.log(`\n======================================================`);
     console.log(`[CRON] ✅ HOÀN THÀNH ĐỒNG BỘ: ${totalSyncedShops} nhà thuốc, ${totalInventoryRecords} bản ghi tồn kho.`);

@@ -43,9 +43,17 @@
       ".read": "true",
       ".write": "true"
     },
+    "inventory": {
+      ".read": "true",
+      ".write": "true"
+    },
     "upharma_data": {
       ".read": "true",
-      ".write": "auth != null"
+      ".write": "auth != null",
+      "inventory": {
+        ".read": "true",
+        ".write": "true"
+      }
     },
     "shops": {
       "$shopCode": {

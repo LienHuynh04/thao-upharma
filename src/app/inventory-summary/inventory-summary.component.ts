@@ -180,31 +180,98 @@ export class InventorySummaryComponent implements OnInit {
     } catch (e) {}
   }
 
+  private parseInventoryResponse(json: any): ShopOverviewItem[] | null {
+    if (!json) return null;
+    if (Array.isArray(json?.items) && json.items.length > 0) {
+      return json.items;
+    }
+    if (Array.isArray(json) && json.length > 0) {
+      return json;
+    }
+    if (typeof json === "object" && !Array.isArray(json)) {
+      const dataObj = json.data && typeof json.data === "object" && !Array.isArray(json.data) ? json.data : json;
+      const keys = Object.keys(dataObj).filter(
+        (k) => k.startsWith("SHOP") || (typeof dataObj[k] === "object" && dataObj[k] !== null),
+      );
+      if (keys.length > 0) {
+        return keys.map((k) => {
+          const item = dataObj[k];
+          const total = Number(item.Total ?? item.totalStockValue ?? item.total ?? 0);
+          const d3 = Number(item.Date_3th ?? item.dateUnder3MValue ?? 0);
+          const d6 = Number(item.Date_6th ?? item.dateUnder6MValue ?? 0);
+          const d12 = Number(item.Date_12th ?? item.dateUnder12MValue ?? 0);
+          const r3 = Number(item.Date_3th_Rate ?? item.dateUnder3MRate ?? (total > 0 ? (d3 / total) * 100 : 0));
+          const r6 = Number(item.Date_6th_Rate ?? item.dateUnder6MRate ?? (total > 0 ? (d6 / total) * 100 : 0));
+          const r12 = Number(item.Date_12th_Rate ?? item.dateUnder12MRate ?? (total > 0 ? (d12 / total) * 100 : 0));
+          const shopCode = item.ShopCode || item.shopCode || k;
+          const shopName = item.ShopName || item.shopName || shopCode;
+          const province = item.Province || item.province || this.extractProvince(shopName);
+
+          return {
+            shopCode,
+            shopName,
+            province,
+            totalStockValue: total,
+            dateUnder3MValue: d3,
+            dateUnder3MRate: r3,
+            dateUnder6MValue: d6,
+            dateUnder6MRate: r6,
+            dateUnder12MValue: d12,
+            dateUnder12MRate: r12,
+          };
+        });
+      }
+    }
+    return null;
+  }
+
   // ─── Tải dữ liệu từ Firebase RTDB hoặc Tính toán ────────────────
   async fetchOverviewData(forceRefresh = false): Promise<void> {
     const firebaseDbUrl = (environment as any).firebaseDbUrl as string | undefined;
     const normalizedFirebase = firebaseDbUrl ? firebaseDbUrl.replace(/\/$/, "") : "";
 
-    // 1. Thử tải từ Firebase RTDB shops_inventory_overview.json
+    // 1. Thử tải từ Firebase RTDB (inventory.json, upharma_data/inventory.json, shops_inventory_overview.json)
     if (normalizedFirebase && !forceRefresh) {
-      try {
-        const res = await fetch(`${normalizedFirebase}/shops_inventory_overview.json`);
-        if (res.ok) {
-          const json = await res.json();
-          const items = json?.items || (Array.isArray(json) ? json : null);
-          if (Array.isArray(items) && items.length > 0) {
-            this.shopRows = items;
-            this.saveToCache(items);
-            this.cdr.detectChanges();
-            return;
+      const endpoints = [
+        `${normalizedFirebase}/inventory.json`,
+        `${normalizedFirebase}/upharma_data/inventory.json`,
+        `${normalizedFirebase}/shops_inventory_overview.json`,
+      ];
+      for (const ep of endpoints) {
+        try {
+          const res = await fetch(ep);
+          if (res.ok) {
+            const json = await res.json();
+            const items = this.parseInventoryResponse(json);
+            if (items && items.length > 0) {
+              this.shopRows = items;
+              this.saveToCache(items);
+              this.cdr.detectChanges();
+              return;
+            }
           }
+        } catch (err) {
+          console.warn(`[Overview] Lỗi tải từ ${ep}:`, err);
         }
-      } catch (err) {
-        console.warn("[Overview] Firebase RTDB fetch error:", err);
       }
     }
 
-    // 2. Nếu Firebase chưa có bản tổng hợp sẵn, tiến hành tính toán trực tiếp
+    // 2. Thử tải từ file tĩnh assets/data/inventory.json
+    try {
+      const res = await fetch("assets/data/inventory.json");
+      if (res.ok) {
+        const json = await res.json();
+        const items = this.parseInventoryResponse(json);
+        if (items && items.length > 0) {
+          this.shopRows = items;
+          this.saveToCache(items);
+          this.cdr.detectChanges();
+          return;
+        }
+      }
+    } catch {}
+
+    // 3. Nếu Firebase chưa có bản tổng hợp sẵn, tiến hành tính toán trực tiếp
     await this.calculateAllShopsOverview();
   }
 
@@ -231,6 +298,25 @@ export class InventorySummaryComponent implements OnInit {
             const res = await fetch(`${normalizedFirebase}/shops/${shop.ShopCode}/upharma_data/inventory.json`);
             if (res.ok) {
               const json = await res.json();
+              if (json && (json.Date_3th !== undefined || json.Total !== undefined || json.totalStockValue !== undefined)) {
+                const total = Number(json.Total ?? json.totalStockValue ?? 0);
+                const d3 = Number(json.Date_3th ?? json.dateUnder3MValue ?? 0);
+                const d6 = Number(json.Date_6th ?? json.dateUnder6MValue ?? 0);
+                const d12 = Number(json.Date_12th ?? json.dateUnder12MValue ?? 0);
+                results.push({
+                  shopCode: json.ShopCode || json.shopCode || shop.ShopCode,
+                  shopName: json.ShopName || json.shopName || shop.ShopName,
+                  province: json.Province || json.province || this.extractProvince(shop.ShopName),
+                  totalStockValue: total,
+                  dateUnder3MValue: d3,
+                  dateUnder3MRate: Number(json.Date_3th_Rate ?? json.dateUnder3MRate ?? (total > 0 ? (d3 / total) * 100 : 0)),
+                  dateUnder6MValue: d6,
+                  dateUnder6MRate: Number(json.Date_6th_Rate ?? json.dateUnder6MRate ?? (total > 0 ? (d6 / total) * 100 : 0)),
+                  dateUnder12MValue: d12,
+                  dateUnder12MRate: Number(json.Date_12th_Rate ?? json.dateUnder12MRate ?? (total > 0 ? (d12 / total) * 100 : 0)),
+                });
+                continue;
+              }
               if (Array.isArray(json)) inventoryRows = json;
               else if (Array.isArray(json?.data)) inventoryRows = json.data;
               else if (json?.data && typeof json.data === "object") inventoryRows = Object.values(json.data);

@@ -12,25 +12,6 @@
       </div>
     </div>
 
-    <!-- Sub-navigation Tabs -->
-    <div class="d-flex align-items-center gap-4 border-bottom pb-2 mb-3 text-nowrap overflow-auto sub-nav-tabs">
-      <a class="nav-link text-success fw-bold border-bottom border-success border-3 pb-2 mb-n2 d-flex align-items-center gap-1 active-sub-tab" href="javascript:void(0)">
-        <i class="ti ti-chart-bar" style="font-size: 1.1rem;"></i> Tổng Quan
-      </a>
-      <a class="nav-link text-muted d-flex align-items-center gap-1" href="javascript:void(0)">
-        <i class="ti ti-chart-line" style="font-size: 1.1rem;"></i> Kinh Doanh
-      </a>
-      <a class="nav-link text-muted d-flex align-items-center gap-1" href="javascript:void(0)">
-        <i class="ti ti-target" style="font-size: 1.1rem;"></i> OKR
-      </a>
-      <a class="nav-link text-muted d-flex align-items-center gap-1" href="javascript:void(0)">
-        <i class="ti ti-file-text" style="font-size: 1.1rem;"></i> Báo Cáo Chi Tiết
-      </a>
-      <a class="nav-link text-muted d-flex align-items-center gap-1" href="javascript:void(0)">
-        <i class="ti ti-calendar" style="font-size: 1.1rem;"></i> Báo Cáo Tuần
-      </a>
-    </div>
-
     <!-- Alert thông báo -->
     <div class="alert alert-danger py-2 px-3 small d-flex align-items-center gap-2 mb-2" *ngIf="errorText">
       <i class="ti ti-alert-circle"></i><span>{{ errorText }}</span>
@@ -181,33 +162,6 @@
               </tr>
             }
           </tbody>
-
-          <!-- TFOOT HÀNG TỔNG -->
-          <tfoot class="sticky-bottom" style="z-index: 10; background-color: #f1f5f9; border-top: 2px solid #cbd5e1;">
-            <tr style="font-size: 12.5px; font-weight: 700; color: #1e293b;">
-              <!-- Tỉnh: TỔNG -->
-              <td class="text-start ps-3 fw-bold text-dark">TỔNG</td>
-              <!-- Mã NT: X NT -->
-              <td class="text-start ps-2 fw-bold text-primary">{{ totalSummary.shopsCount }} NT</td>
-
-              <!-- Date <= 3T -->
-              <td class="text-end border-start pe-2 text-dark fw-bold">{{ formatMoneyNum(totalSummary.dateUnder3MValue) }}</td>
-              <td class="text-end pe-2 text-danger fw-bold">{{ totalSummary.dateUnder3MRate | number:'1.2-2' }}%</td>
-
-              <!-- Date <= 6T -->
-              <td class="text-end border-start pe-2 text-dark fw-bold">{{ formatMoneyNum(totalSummary.dateUnder6MValue) }}</td>
-              <td class="text-end pe-2 text-success fw-bold">{{ totalSummary.dateUnder6MRate | number:'1.2-2' }}%</td>
-
-              <!-- Date <= 12T -->
-              <td class="text-end border-start pe-2 text-dark fw-bold">{{ formatMoneyNum(totalSummary.dateUnder12MValue) }}</td>
-              <td class="text-end pe-2 text-danger fw-bold">{{ totalSummary.dateUnder12MRate | number:'1.2-2' }}%</td>
-
-              <!-- Tổng Tồn Kho -->
-              <td class="text-end pe-3 border-start fw-bold text-primary fs-4" style="font-size: 13.5px !important;">
-                {{ formatMoneyNum(totalSummary.totalStockValue) }} ₫
-              </td>
-            </tr>
-          </tfoot>
         </table>
       </div>
     </div>

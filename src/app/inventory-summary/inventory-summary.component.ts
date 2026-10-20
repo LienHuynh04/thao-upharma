@@ -93,7 +93,8 @@ export class InventorySummaryComponent implements OnInit {
   syncLogs: SyncLog[] = [];
 
   // ── Shop state ────────────────────────────────────────────
-  activeShopCode = "";
+  // Mặc định "ALL" để hiển thị dữ liệu tổng hợp của TẤT CẢ nhà thuốc user có
+  activeShopCode = "ALL";
   activeExpiryFilter: ExpiryStatus | "all" = "all";
 
   shopSummaries: ShopInventorySummary[] = [];
@@ -104,11 +105,78 @@ export class InventorySummaryComponent implements OnInit {
   totalDaysInMonth = 0;
 
   // ── Getters ───────────────────────────────────────────────
+  get activeShopTitle(): string {
+    if (this.activeShopCode === "ALL") {
+      return `Tất cả (${this.shopSummaries.length} nhà thuốc)`;
+    }
+    const current = this.shopSummaries.find((s) => s.shopCode === this.activeShopCode);
+    return current ? `${current.shopCode} - ${current.shopName}` : this.activeShopCode;
+  }
+
   get activeShopSummary(): ShopInventorySummary | undefined {
+    if (this.activeShopCode === "ALL") {
+      const tv = this.shopSummaries.reduce((sum, s) => sum + s.totalValue, 0);
+      const safeTv = tv || 1;
+      const pct = (v: number) => ((v / safeTv) * 100).toFixed(2).replace(".", ",");
+
+      const expiredVal = this.shopSummaries.reduce((sum, s) => sum + s.expiredValue, 0);
+      const dangerVal = this.shopSummaries.reduce((sum, s) => sum + s.dangerValue, 0);
+      const warningVal = this.shopSummaries.reduce((sum, s) => sum + s.warningValue, 0);
+      const safeVal = this.shopSummaries.reduce((sum, s) => sum + s.safeValue, 0);
+      const normalVal = this.shopSummaries.reduce((sum, s) => sum + s.normalValue, 0);
+
+      return {
+        shopCode: "ALL",
+        shopName: "Tất cả nhà thuốc",
+        totalProducts: this.shopSummaries.reduce((sum, s) => sum + s.totalProducts, 0),
+        totalValue: tv,
+        expiredCount: this.shopSummaries.reduce((sum, s) => sum + s.expiredCount, 0),
+        expiredValue: expiredVal,
+        expiredRate: pct(expiredVal),
+        dangerCount: this.shopSummaries.reduce((sum, s) => sum + s.dangerCount, 0),
+        dangerValue: dangerVal,
+        dangerRate: pct(dangerVal),
+        warningCount: this.shopSummaries.reduce((sum, s) => sum + s.warningCount, 0),
+        warningValue: warningVal,
+        warningRate: pct(warningVal),
+        safeCount: this.shopSummaries.reduce((sum, s) => sum + s.safeCount, 0),
+        safeValue: safeVal,
+        safeRate: pct(safeVal),
+        normalCount: this.shopSummaries.reduce((sum, s) => sum + s.normalCount, 0),
+        normalValue: normalVal,
+        normalRate: pct(normalVal),
+      };
+    }
     return this.shopSummaries.find((s) => s.shopCode === this.activeShopCode);
   }
 
   get activeHhs(): ShopHhsSummary | undefined {
+    if (this.activeShopCode === "ALL") {
+      const amount = this.hhsSummaries.reduce((sum, h) => sum + h.amount, 0);
+      const amountR = this.hhsSummaries.reduce((sum, h) => sum + h.amountR, 0);
+      const hhs = this.hhsSummaries.reduce((sum, h) => sum + h.hhs, 0);
+      const hhsR = this.hhsSummaries.reduce((sum, h) => sum + h.hhsR, 0);
+      const projected = this.hhsSummaries.reduce((sum, h) => sum + h.projectedAmount, 0);
+
+      const salesPercent = amount > 0 ? (amountR / amount) * 100 : 0;
+      const hhsRatio = amountR > 0 ? ((hhsR * 1000) / amountR) * 100 : 0;
+      const hhsRatioTarget = amount > 0 ? ((hhs * 1000) / amount) * 100 : 0;
+      const hhsPercent = hhs > 0 ? (hhsR / hhs) * 100 : 0;
+
+      return {
+        shopCode: "ALL",
+        shopName: "Tất cả nhà thuốc",
+        amount,
+        amountR,
+        hhs,
+        hhsR,
+        salesPercent,
+        hhsRatio,
+        hhsRatioTarget,
+        hhsPercent,
+        projectedAmount: projected,
+      };
+    }
     return this.hhsSummaries.find((s) => s.shopCode === this.activeShopCode);
   }
 
@@ -183,15 +251,16 @@ export class InventorySummaryComponent implements OnInit {
 
     try {
       const shops = this.upharma.getActiveShops();
-      const response = await this.upharma.loadInventoryResource({ forceRefresh: false });
+      const shopCodes = shops.map((s) => s.ShopCode);
+
+      // Tải tồn kho cho TẤT CẢ nhà thuốc user có quyền
+      const response = await this.upharma.loadInventoryResource({
+        shopCodes,
+        forceRefresh: false,
+      });
       this.loadingProgressPercent = 80;
 
-      this.buildShopSummaries(shops, response.data);
-
-      if (shops.length > 0 && !this.activeShopCode) {
-        this.activeShopCode = shops[0].ShopCode;
-      }
-
+      this.buildShopSummaries(shops, response.data || []);
       this.loadingProgressPercent = 100;
     } catch (err) {
       this.errorText = `Lỗi tải tồn kho: ${err instanceof Error ? err.message : String(err)}`;
@@ -204,7 +273,7 @@ export class InventorySummaryComponent implements OnInit {
   }
 
   // ─────────────────────────────────────────────────────────
-  // BƯỚC 2: GỌI API → ĐẨYLÊN FIREBASE (nút "Đồng bộ")
+  // BƯỚC 2: GỌI API → ĐẨY LÊN FIREBASE (nút "Đồng bộ")
   // ─────────────────────────────────────────────────────────
 
   async syncToFirebase(): Promise<void> {
@@ -292,9 +361,6 @@ export class InventorySummaryComponent implements OnInit {
       // ── Cập nhật UI từ dữ liệu vừa lấy ──────────────────
       if (allInventoryData.length > 0) {
         this.buildShopSummaries(shops, allInventoryData);
-        if (!this.activeShopCode && shops.length > 0) {
-          this.activeShopCode = shops[0].ShopCode;
-        }
       }
 
       const summary = `Hoàn tất: ${successCount} thành công, ${failCount} lỗi`;
@@ -405,11 +471,9 @@ export class InventorySummaryComponent implements OnInit {
         const hhs = items.reduce((s, i) => s + (Number(i.PointSales01) || 0), 0);
         const hhsR = items.reduce((s, i) => s + (Number(i.PointSales01R) || 0), 0);
 
-        if (amount === 0 && amountR === 0) continue;
-
         summaries.push({
           shopCode: shop.ShopCode,
-          shopName: shop.ShopName,
+          shopName: shop.ShopName || shop.ShopCode,
           amount,
           amountR,
           hhs,
@@ -445,6 +509,7 @@ export class InventorySummaryComponent implements OnInit {
       normal: { count: Set<string>; value: number };
     }>();
 
+    // Khởi tạo trước TẤT CẢ các nhà thuốc mà user có quyền
     for (const shop of shops) {
       shopMap.set(shop.ShopCode, {
         info: shop,
@@ -489,16 +554,17 @@ export class InventorySummaryComponent implements OnInit {
       }
     }
 
+    // Luôn giữ đầy đủ TẤT CẢ nhà thuốc user có quyền truy cập, không filter bỏ
     this.shopSummaries = Array.from(shopMap.values())
-      .filter((e) => e.products.size > 0 || e.totalValue > 0)
       .map((e) => {
-        const tv = e.totalValue || 1;
-        const pct = (v: number) => ((v / tv) * 100).toFixed(2).replace(".", ",");
+        const tv = e.totalValue || 0;
+        const safeTv = tv || 1;
+        const pct = (v: number) => ((v / safeTv) * 100).toFixed(2).replace(".", ",");
         return {
           shopCode: e.info.ShopCode,
-          shopName: e.info.ShopName,
+          shopName: e.info.ShopName || e.info.ShopCode,
           totalProducts: e.products.size,
-          totalValue: e.totalValue,
+          totalValue: tv,
           expiredCount: e.expired.count.size,
           expiredValue: e.expired.value,
           expiredRate: pct(e.expired.value),
@@ -515,7 +581,8 @@ export class InventorySummaryComponent implements OnInit {
           normalValue: e.normal.value,
           normalRate: pct(e.normal.value),
         };
-      });
+      })
+      .sort((a, b) => a.shopCode.localeCompare(b.shopCode, "vi"));
   }
 
   // ─── Log helper ─────────────────────────────────────────

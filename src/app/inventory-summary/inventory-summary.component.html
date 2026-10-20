@@ -157,6 +157,15 @@
     <div class="card mb-3" *ngIf="shopSummaries.length > 0">
       <div class="card-header p-0">
         <ul class="nav nav-tabs card-header-tabs nav-fill w-100 m-0">
+          <li class="nav-item">
+            <a href="javascript:void(0)"
+               class="nav-link py-3"
+               [class.active]="activeShopCode === 'ALL'"
+               (click)="setActiveShop('ALL')">
+              <i class="ti ti-layout-grid me-2" style="font-size:1.15rem;"></i>
+              <strong>Tất cả nhà ({{ shopSummaries.length }})</strong>
+            </a>
+          </li>
           <li class="nav-item" *ngFor="let shop of shopSummaries; trackBy: trackByShop">
             <a href="javascript:void(0)"
                class="nav-link py-3"
@@ -180,7 +189,7 @@
           <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
             <h3 class="card-title m-0">
               <i class="ti ti-chart-bar me-2 text-primary"></i>
-              Hệ số Doanh số — {{ activeShopCode }} — Tháng {{ selectedMonth }}/{{ selectedYear }}
+              Hệ số Doanh số — {{ activeShopTitle }} — Tháng {{ selectedMonth }}/{{ selectedYear }}
             </h3>
             <span class="badge"
                   [class.bg-success-lt]="activeHhs?.salesPercent >= 100"
@@ -269,7 +278,7 @@
           <div class="card-header">
             <h3 class="card-title m-0">
               <i class="ti ti-package me-2 text-primary"></i>
-              Tổng quan tồn kho — {{ activeShopCode }}
+              Tổng quan tồn kho — {{ activeShopTitle }}
             </h3>
           </div>
           <div class="card-body p-0" *ngIf="activeShopSummary">

@@ -309,7 +309,7 @@ export class UpharmaService {
       const shopsToFetch =
         payloadShopCodes.length > 0
           ? this.shopList.filter((shop) => payloadShopCodes.includes(shop.ShopCode))
-          : (this.shopList.length > 0 ? [this.shopList[0]] : []);
+          : this.shopList;
 
       if (firebaseDbUrl) {
         const normalizedFirebase = firebaseDbUrl.replace(/\/$/, "");
@@ -666,7 +666,7 @@ export class UpharmaService {
     const requestedShopCodes = new Set(options.shopCodes || []);
     const selectedShops = requestedShopCodes.size > 0
       ? this.shopList.filter((shop) => requestedShopCodes.has(shop.ShopCode))
-      : (this.shopList.length > 0 ? [this.shopList[0]] : []);
+      : this.shopList;
     const shops = [...selectedShops];
 
     const worker = async (): Promise<void> => {
@@ -819,7 +819,7 @@ export class UpharmaService {
         const requestedShopCodes = new Set(options.shopCodes || []);
         const shopsToFetch = requestedShopCodes.size > 0
           ? this.shopList.filter((shop) => requestedShopCodes.has(shop.ShopCode))
-          : (this.shopList.length > 0 ? [this.shopList[0]] : []);
+          : this.shopList;
         const shopMap = await this.fetchAggregatedFirebaseResource(resourceName, normalizedFirebase);
         if (shopMap) {
           const shopsData: any[] = [];

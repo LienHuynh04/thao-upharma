@@ -39,6 +39,10 @@
       ".read": "true",
       ".write": "auth != null"
     },
+    "shops_inventory_overview": {
+      ".read": "true",
+      ".write": "true"
+    },
     "upharma_data": {
       ".read": "true",
       ".write": "auth != null"

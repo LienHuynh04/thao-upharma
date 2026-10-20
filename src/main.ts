@@ -118,13 +118,13 @@ const routes: Routes = [
       },
       {
         path: "ton-kho",
-        loadComponent: () => import("./app/inventory-new/inventory-new.component").then((m) => m.InventoryNewComponent),
+        loadComponent: () => import("./app/inventory-summary/inventory-summary.component").then((m) => m.InventorySummaryComponent),
         title: "UPHARMA - Tồn kho",
       },
       {
         path: "ton-kho-summary",
         loadComponent: () => import("./app/inventory-summary/inventory-summary.component").then((m) => m.InventorySummaryComponent),
-        title: "UPHARMA - Tồn kho & HHS",
+        title: "UPHARMA - Tồn kho",
       },
       {
         path: "fefo",

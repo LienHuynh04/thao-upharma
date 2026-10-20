@@ -1,0 +1,78 @@
+/* ── Sub Navigation Tabs ────────────────────────────────────────────── */
+.sub-nav-tabs {
+  border-color: #e2e8f0 !important;
+}
+
+.sub-nav-tabs .nav-link {
+  color: #64748b;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  padding: 6px 4px;
+}
+
+.sub-nav-tabs .nav-link:hover {
+  color: #0d472b;
+}
+
+.sub-nav-tabs .active-sub-tab {
+  color: #0d472b !important;
+  border-bottom: 3px solid #0d472b !important;
+}
+
+/* ── Custom Matrix Table ────────────────────────────────────────────── */
+.custom-matrix-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.custom-matrix-table th {
+  border-color: #cbd5e1 !important;
+  vertical-align: middle;
+}
+
+.custom-matrix-table td {
+  border-color: #e2e8f0;
+  vertical-align: middle;
+  padding: 7px 10px;
+}
+
+.custom-matrix-table tbody tr.shop-row:hover {
+  background-color: #f1f5f9 !important;
+}
+
+.custom-matrix-table tbody tr.row-expanded {
+  background-color: #f8fafc !important;
+  border-bottom: 1px dashed #cbd5e1;
+}
+
+.custom-matrix-table tbody tr.employee-row td {
+  background-color: #fbfcfd;
+  border-color: #e2e8f0;
+  padding: 5px 10px;
+}
+
+.custom-matrix-table tbody tr.employee-row:hover td {
+  background-color: #f1f5f9;
+}
+
+/* ── Utilities ──────────────────────────────────────────────────────── */
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

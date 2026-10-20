@@ -1,312 +1,331 @@
-<!-- ================================================================
-   TRANG TỒN KHO & HHS — UI Select Dropdown gọn gàng cho từng nhà thuốc
-   Không có bảng sản phẩm | Bỏ tab dài | Chuyển đổi shop tức thì
-   ================================================================ -->
+<!-- ══════════════════════════════════════════════════════════════════════
+     BÁO CÁO TỔNG QUAN TỒN KHO & DOANH SỐ — BẢNG ĐA NHÀ THUỐC
+     Theo đúng chuẩn UI ảnh mẫu (webappupharma.web.app)
+     ══════════════════════════════════════════════════════════════════════ -->
 
-<!-- ─── Page Header ─────────────────────────────────────────────── -->
-<div class="page-header d-print-none">
-  <div class="container-xl">
-    <div class="row g-2 align-items-center">
-      <div class="col">
-        <div class="page-pretitle">QUẢN LÝ TỒN KHO</div>
-        <h2 class="page-title">Tồn kho & Hệ số DS</h2>
+<div class="page-header d-print-none mb-2">
+  <div class="container-fluid px-3">
+    <!-- Breadcrumb / Header Title -->
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div class="d-flex align-items-center gap-2">
+        <span class="fs-2 fw-extrabold text-dark" style="font-weight: 800; color: #1e293b;">| Tổng Quan</span>
       </div>
-      <div class="col-12 col-md-auto ms-md-auto mt-2 mt-md-0 d-print-none">
-        <div class="d-flex flex-wrap gap-2 align-items-center">
-          <!-- Chọn Tháng/Năm cho HHS -->
-          <div class="d-inline-flex align-items-center gap-1">
-            <span class="text-label-caps">Tháng</span>
-            <select class="form-select form-select-sm" [(ngModel)]="selectedMonth"
-              (ngModelChange)="onPeriodChange()" style="width:auto;min-width:60px;">
-              <option *ngFor="let m of months" [ngValue]="m">{{ m }}</option>
-            </select>
-          </div>
-          <div class="d-inline-flex align-items-center gap-1">
-            <span class="text-label-caps">Năm</span>
-            <select class="form-select form-select-sm" [(ngModel)]="selectedYear"
-              (ngModelChange)="onPeriodChange()" style="width:auto;min-width:80px;">
-              <option *ngFor="let y of years" [ngValue]="y">{{ y }}</option>
-            </select>
-          </div>
-          <!-- Nút Đồng bộ → Firebase -->
-          <button class="btn btn-sm btn-success d-flex align-items-center gap-1"
-                  (click)="syncToFirebase()"
-                  [disabled]="isSyncing || isInventoryLoading"
-                  title="Lấy dữ liệu từ API và đẩy lên Firebase">
-            <i class="ti" [class.ti-cloud-upload]="!isSyncing" [class.ti-loader]="isSyncing"
-               [class.spin]="isSyncing"></i>
-            {{ isSyncing ? syncStatus : 'Đồng bộ → Firebase' }}
+    </div>
+
+    <!-- Sub-navigation Tabs (Theo đúng thanh điều hướng ảnh mẫu) -->
+    <div class="d-flex align-items-center gap-4 border-bottom pb-2 mb-3 text-nowrap overflow-auto sub-nav-tabs">
+      <a class="nav-link text-success fw-bold border-bottom border-success border-3 pb-2 mb-n2 d-flex align-items-center gap-1 active-sub-tab" href="javascript:void(0)">
+        <i class="ti ti-chart-bar" style="font-size: 1.1rem;"></i> Tổng Quan
+      </a>
+      <a class="nav-link text-muted d-flex align-items-center gap-1" href="javascript:void(0)">
+        <i class="ti ti-chart-line" style="font-size: 1.1rem;"></i> Kinh Doanh
+      </a>
+      <a class="nav-link text-muted d-flex align-items-center gap-1" href="javascript:void(0)">
+        <i class="ti ti-target" style="font-size: 1.1rem;"></i> OKR
+      </a>
+      <a class="nav-link text-muted d-flex align-items-center gap-1" href="javascript:void(0)">
+        <i class="ti ti-file-text" style="font-size: 1.1rem;"></i> Báo Cáo Chi Tiết
+      </a>
+      <a class="nav-link text-muted d-flex align-items-center gap-1" href="javascript:void(0)">
+        <i class="ti ti-calendar" style="font-size: 1.1rem;"></i> Báo Cáo Tuần
+      </a>
+    </div>
+
+    <!-- Alert thông báo -->
+    <div class="alert alert-danger py-2 px-3 small d-flex align-items-center gap-2 mb-2" *ngIf="errorText">
+      <i class="ti ti-alert-circle"></i><span>{{ errorText }}</span>
+    </div>
+    <div class="alert alert-success py-2 px-3 small d-flex align-items-center gap-2 mb-2" *ngIf="successText">
+      <i class="ti ti-circle-check"></i><span>{{ successText }}</span>
+    </div>
+
+    <!-- Thanh Lọc & Tác Vụ (Controls Bar) -->
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+      <div class="d-flex align-items-center flex-wrap gap-2">
+        <!-- Dropdown Tháng/Năm -->
+        <select
+          class="form-select form-select-sm fw-bold border-secondary-subtle"
+          style="width: auto; min-width: 140px; height: 34px; cursor: pointer; background-color: #ffffff;"
+          [(ngModel)]="selectedPeriod"
+          (ngModelChange)="onPeriodChange()"
+        >
+          <option *ngFor="let p of availablePeriods" [value]="p.value">Tháng {{ p.label }}</option>
+        </select>
+
+        <!-- Bộ lọc Tỉnh/Khu vực dạng Pill Buttons -->
+        <div class="btn-group btn-group-sm" role="group">
+          <button
+            type="button"
+            class="btn px-3 fw-semibold"
+            [class.btn-success]="activeProvince === 'all'"
+            [class.btn-outline-secondary]="activeProvince !== 'all'"
+            (click)="setProvinceFilter('all')"
+          >
+            Tất cả
           </button>
-          <!-- Nút Tải lại -->
-          <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1"
-                  (click)="reload()"
-                  [disabled]="isInventoryLoading">
-            <i class="ti ti-refresh" [class.spin]="isInventoryLoading"></i>
-            Tải lại
+          <button
+            *ngFor="let prov of provincesList"
+            type="button"
+            class="btn px-3 fw-semibold"
+            [class.btn-success]="activeProvince === prov"
+            [class.btn-outline-secondary]="activeProvince !== prov"
+            (click)="setProvinceFilter(prov)"
+          >
+            {{ prov }}
           </button>
         </div>
+
+        <!-- Ô Tìm kiếm -->
+        <div class="input-icon" style="width: 250px;">
+          <span class="input-icon-addon">
+            <i class="ti ti-search text-muted"></i>
+          </span>
+          <input
+            type="text"
+            class="form-control form-control-sm"
+            style="height: 34px;"
+            placeholder="Tìm nhân viên hoặc shop..."
+            [(ngModel)]="searchText"
+            (ngModelChange)="applyFilter()"
+          />
+        </div>
+
+        <!-- Dòng thống kê số lượng -->
+        <span class="text-secondary small ms-1" style="font-size: 13px;">
+          {{ totalFilteredEmployees }} nhân sự · {{ filteredRows.length }} nhà thuốc · số liệu tới ngày {{ todayDisplay }}
+        </span>
+      </div>
+
+      <!-- Nút Tác vụ bên phải -->
+      <div class="d-flex align-items-center gap-2 ms-auto flex-wrap">
+        <!-- Nút Mở/Đóng nhân sự -->
+        <button
+          class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 fw-medium"
+          style="height: 34px;"
+          (click)="toggleExpandAll()"
+          title="Mở rộng hoặc thu gọn danh sách nhân sự"
+        >
+          <i class="ti" [class.ti-plus]="!allExpanded" [class.ti-minus]="allExpanded"></i>
+          {{ allExpanded ? 'Đóng nhân viên' : '• Mở nhân viên' }}
+        </button>
+
+        <!-- Nút Xuất Form Excel -->
+        <button
+          class="btn btn-sm btn-success d-flex align-items-center gap-1 fw-bold"
+          style="height: 34px; background-color: #0d472b; border-color: #0d472b;"
+          (click)="exportExcel()"
+          [disabled]="filteredRows.length === 0"
+          title="Xuất bảng số liệu ra file Excel"
+        >
+          <i class="ti ti-download"></i>
+          ↓ Xuất Form Excel
+        </button>
+
+        <!-- Nút Tải lại -->
+        <button
+          class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1"
+          style="height: 34px;"
+          (click)="reload()"
+          [disabled]="isLoading"
+          title="Tải lại dữ liệu từ cache"
+        >
+          <i class="ti ti-refresh" [class.spin]="isLoading"></i>
+          Tải lại
+        </button>
+
+        <!-- Nút Đồng bộ → Firebase -->
+        <button
+          class="btn btn-sm btn-outline-success d-flex align-items-center gap-1"
+          style="height: 34px;"
+          (click)="syncAllToFirebase()"
+          [disabled]="isSyncing"
+          title="Tính toán và đẩy dữ liệu lên Firebase RTDB"
+        >
+          <i class="ti" [class.ti-cloud-upload]="!isSyncing" [class.ti-loader]="isSyncing" [class.spin]="isSyncing"></i>
+          {{ isSyncing ? syncStatus : 'Đồng bộ → Firebase' }}
+        </button>
       </div>
     </div>
   </div>
 </div>
 
-<div class="page-body">
-  <div class="container-xl">
+<!-- ══════════════════════════════════════════════════════════════════════
+     BẢNG DỮ LIỆU CHÍNH (Cấu trúc & Cột chính xác 100% như ảnh mẫu)
+     ══════════════════════════════════════════════════════════════════════ -->
+<div class="page-body mt-0">
+  <div class="container-fluid px-3">
+    <div class="card shadow-sm border-0" style="border-radius: 8px; overflow: hidden;">
+      <div class="table-responsive" style="max-height: calc(100vh - 230px); overflow-y: auto;">
+        <table class="table table-vcenter table-bordered table-sm card-table table-hover text-nowrap m-0 custom-matrix-table">
+          <!-- THEAD 2 TẦNG (CỘT CHUẨN THEO ẢNH) -->
+          <thead class="sticky-top bg-light" style="z-index: 10;">
+            <!-- Tầng 1: Nhóm cột chính -->
+            <tr style="background-color: #f8fafc; font-weight: 700; font-size: 12.5px; color: #1e293b;">
+              <th rowspan="2" class="align-middle text-start ps-3" style="min-width: 110px;">Tỉnh</th>
+              <th rowspan="2" class="align-middle text-start" style="min-width: 105px;">Mã NT</th>
+              <th rowspan="2" class="align-middle text-center" style="min-width: 105px;">Mã Nhân Viên</th>
+              <th rowspan="2" class="align-middle text-start ps-2" style="min-width: 125px;">Tên Nhân Viên</th>
+              <th colspan="2" class="align-middle text-center border-start border-end" style="background-color: #edf2f7;">Date ≤ 6T</th>
+              <th colspan="2" class="align-middle text-center border-end" style="background-color: #edf2f7;">Date ≤ 12T</th>
+              <th colspan="3" class="align-middle text-center border-end" style="background-color: #edf2f7;">Hàng Lặp</th>
+              <th colspan="3" class="align-middle text-center border-end" style="background-color: #edf2f7;">Hàng Key</th>
+              <th rowspan="2" class="align-middle text-end pe-3 border-start" style="min-width: 115px;">
+                Hàng Lập<br><span style="font-size: 11px; font-weight: 600; color: #64748b;">Doanh số</span>
+              </th>
+            </tr>
+            <!-- Tầng 2: Cột con -->
+            <tr style="background-color: #f1f5f9; font-size: 11.5px; font-weight: 600; color: #475569;">
+              <!-- Date <= 6T -->
+              <th class="border-start text-end py-1 pe-2" style="min-width: 95px;">Giá Trị</th>
+              <th class="text-end py-1 pe-2" style="min-width: 60px;">%</th>
+              <!-- Date <= 12T -->
+              <th class="border-start text-end py-1 pe-2" style="min-width: 95px;">Giá Trị</th>
+              <th class="text-end py-1 pe-2" style="min-width: 60px;">%</th>
+              <!-- Hàng Lặp -->
+              <th class="border-start text-center py-1" style="min-width: 70px;">SKU Lặp</th>
+              <th class="text-center py-1" style="min-width: 65px;">Có Tồn</th>
+              <th class="text-center py-1" style="min-width: 70px;">Hết Hàng</th>
+              <!-- Hàng Key -->
+              <th class="border-start text-center py-1" style="min-width: 70px;">SKU Key</th>
+              <th class="text-center py-1" style="min-width: 65px;">Có Tồn</th>
+              <th class="text-center py-1" style="min-width: 70px;">Hết Hàng</th>
+            </tr>
+          </thead>
 
-    <!-- ── Lỗi / Thành công ─────────────────────────────────── -->
-    <div class="alert alert-danger d-flex align-items-center gap-2 mb-3" *ngIf="errorText" role="alert">
-      <i class="ti ti-alert-circle"></i><span>{{ errorText }}</span>
-    </div>
-    <div class="alert alert-success d-flex align-items-center gap-2 mb-3" *ngIf="successText" role="alert">
-      <i class="ti ti-circle-check"></i><span>{{ successText }}</span>
-    </div>
+          <!-- TBODY DANH SÁCH NHÀ THUỐC -->
+          <tbody>
+            @for (row of filteredRows; track row.shopCode) {
+              <!-- ── Hàng Nhà Thuốc ── -->
+              <tr class="fw-medium shop-row" [class.row-expanded]="row.expanded">
+                <!-- Tỉnh -->
+                <td class="text-start ps-3 text-secondary">{{ row.province }}</td>
+                <!-- Mã NT -->
+                <td class="text-start fw-bold text-dark">{{ row.shopCode }}</td>
+                <!-- Mã Nhân Viên: TỔNG NT -->
+                <td class="text-center">
+                  <span
+                    class="badge bg-secondary-lt fw-bold cursor-pointer"
+                    (click)="toggleRow(row)"
+                    style="font-size: 11px; padding: 3px 8px; border-radius: 4px;"
+                    title="Bấm để mở danh sách nhân sự"
+                  >
+                    TỔNG NT
+                    <i class="ti ms-1" [class.ti-chevron-down]="!row.expanded" [class.ti-chevron-up]="row.expanded" style="font-size: 9px;"></i>
+                  </span>
+                </td>
+                <!-- Tên Nhân Viên: X nhân sự -->
+                <td class="text-start ps-2 text-dark">{{ row.employeeCount }} nhân sự</td>
 
-    <!-- ══════════════════════════════════════════════════════════
-         BỘ CHỌN NHÀ THUỐC (Dạng Select dropdown thay cho Tab dài)
-         ══════════════════════════════════════════════════════════ -->
-    <div class="card mb-3 shadow-sm border-0">
-      <div class="card-body py-2 px-3 d-flex align-items-center justify-content-between flex-wrap gap-2" style="background-color: #f8fafc; border: 1px solid var(--upharma-border); border-radius: 8px;">
-        <div class="d-flex align-items-center gap-2 flex-grow-1" style="max-width: 620px;">
-          <span class="avatar avatar-sm bg-primary text-white" style="border-radius: 6px;">
-            <i class="ti ti-building-store" style="font-size: 1.15rem;"></i>
-          </span>
-          <div class="flex-grow-1">
-            <label class="text-label-caps d-block mb-1 text-muted" style="font-size: 10px; font-weight: 700;">Nhà thuốc</label>
-            <select
-              class="form-select form-select-sm fw-bold border-primary text-primary"
-              [ngModel]="activeShopCode"
-              (ngModelChange)="onShopChange($event)"
-              style="font-size: 14px; height: 38px; cursor: pointer; background-color: #ffffff;"
-            >
-              <option *ngFor="let shop of shopList" [value]="shop.ShopCode">
-                {{ shop.ShopCode }} - {{ shop.ShopName }}
-              </option>
-            </select>
-          </div>
-        </div>
+                <!-- Date <= 6T -->
+                <td class="text-end border-start pe-2 text-dark">{{ formatMoneyNum(row.dateUnder6MValue) }}</td>
+                <td class="text-end pe-2 text-success fw-bold">{{ row.dateUnder6MRate | number:'1.2-2' }}%</td>
 
-        <div class="d-flex align-items-center gap-4 ms-auto text-secondary small py-1">
-          <div>
-            <span class="text-muted d-block" style="font-size: 10.5px;">Tổng giá trị tồn kho:</span>
-            <strong class="text-primary fs-3" style="font-size: 1.1rem !important;">{{ formatMoney(activeShopSummary?.totalValue ?? 0) }} ₫</strong>
-          </div>
-          <div class="border-start ps-3">
-            <span class="text-muted d-block" style="font-size: 10.5px;">Tổng số SKU:</span>
-            <strong class="fs-3 text-dark" style="font-size: 1.1rem !important;">{{ activeShopSummary?.totalProducts ?? 0 }} SP</strong>
-          </div>
-        </div>
+                <!-- Date <= 12T -->
+                <td class="text-end border-start pe-2 text-dark">{{ formatMoneyNum(row.dateUnder12MValue) }}</td>
+                <td class="text-end pe-2 fw-bold text-danger">{{ row.dateUnder12MRate | number:'1.2-2' }}%</td>
+
+                <!-- Hàng Lặp -->
+                <td class="text-center border-start text-dark">{{ row.skuLap }}</td>
+                <td class="text-center text-secondary">{{ row.skuLapCoTon }}</td>
+                <td class="text-center" [class.text-danger]="row.skuLapHetHang > 0" [class.fw-bold]="row.skuLapHetHang > 0">
+                  {{ row.skuLapHetHang }}
+                </td>
+
+                <!-- Hàng Key -->
+                <td class="text-center border-start text-dark">{{ row.skuKey }}</td>
+                <td class="text-center text-secondary">{{ row.skuKeyCoTon }}</td>
+                <td class="text-center" [class.text-danger]="row.skuKeyHetHang > 0" [class.fw-bold]="row.skuKeyHetHang > 0">
+                  {{ row.skuKeyHetHang }}
+                </td>
+
+                <!-- Doanh số Hàng Lập -->
+                <td class="text-end pe-3 border-start text-dark fw-bold">
+                  {{ formatMoneyNum(row.revenue) }}
+                </td>
+              </tr>
+
+              <!-- ── Hàng Nhân Sự (Mở rộng khi click Mở nhân viên) ── -->
+              @if (row.expanded && row.employees && row.employees.length > 0) {
+                @for (emp of row.employees; track emp.employeeCode) {
+                  <tr class="employee-row" style="background-color: #f8fafc; font-size: 12px;">
+                    <td class="ps-4 text-muted"><small>↳</small></td>
+                    <td></td>
+                    <td class="text-center font-monospace text-primary small">{{ emp.employeeCode }}</td>
+                    <td class="text-start ps-2 text-dark">{{ emp.employeeName }}</td>
+                    <td class="text-end border-start pe-2 text-muted">{{ emp.dateUnder6MValue ? formatMoneyNum(emp.dateUnder6MValue) : '—' }}</td>
+                    <td class="text-end pe-2 text-muted">{{ emp.dateUnder6MRate ? (emp.dateUnder6MRate | number:'1.2-2') + '%' : '—' }}</td>
+                    <td class="text-end border-start pe-2 text-muted">{{ emp.dateUnder12MValue ? formatMoneyNum(emp.dateUnder12MValue) : '—' }}</td>
+                    <td class="text-end pe-2 text-muted">{{ emp.dateUnder12MRate ? (emp.dateUnder12MRate | number:'1.2-2') + '%' : '—' }}</td>
+                    <td class="text-center border-start text-muted">{{ emp.skuLap ?? '—' }}</td>
+                    <td class="text-center text-muted">{{ emp.skuLapCoTon ?? '—' }}</td>
+                    <td class="text-center text-muted">{{ emp.skuLapHetHang ?? '—' }}</td>
+                    <td class="text-center border-start text-muted">{{ emp.skuKey ?? '—' }}</td>
+                    <td class="text-center text-muted">{{ emp.skuKeyCoTon ?? '—' }}</td>
+                    <td class="text-center text-muted">{{ emp.skuKeyHetHang ?? '—' }}</td>
+                    <td class="text-end pe-3 border-start text-muted">{{ emp.revenue ? formatMoneyNum(emp.revenue) : '—' }}</td>
+                  </tr>
+                }
+              }
+            }
+
+            @if (filteredRows.length === 0 && !isLoading) {
+              <tr>
+                <td colspan="15" class="text-center py-5 text-muted">
+                  <i class="ti ti-inbox fs-1 mb-2 d-block"></i>
+                  Không có dữ liệu nhà thuốc phù hợp với bộ lọc hiện tại.
+                </td>
+              </tr>
+            }
+
+            @if (isLoading) {
+              <tr *ngFor="let _ of [1,2,3,4]">
+                <td colspan="15" class="py-2">
+                  <div class="placeholder-glow">
+                    <span class="placeholder col-12" style="height: 24px; border-radius: 4px;"></span>
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+
+          <!-- TFOOT HÀNG TỔNG (Footer theo đúng ảnh mẫu) -->
+          <tfoot class="sticky-bottom" style="z-index: 10; background-color: #f1f5f9; border-top: 2px solid #cbd5e1;">
+            <tr style="font-size: 12.5px; font-weight: 700; color: #1e293b;">
+              <!-- Tỉnh: TỔNG -->
+              <td class="text-start ps-3 fw-bold text-dark">TỔNG</td>
+              <!-- Mã NT: 16 NT -->
+              <td class="text-start fw-bold text-primary">{{ totalSummary.shopsCount }} NT</td>
+              <!-- Mã Nhân Viên: 55 nhân sự -->
+              <td class="text-center fw-bold text-dark">{{ totalSummary.employeesCount }} nhân sự</td>
+              <!-- Tên Nhân Viên: — -->
+              <td class="text-center text-muted">—</td>
+
+              <!-- Date <= 6T -->
+              <td class="text-end border-start pe-2 text-dark">{{ formatMoneyNum(totalSummary.dateUnder6MValue) }}</td>
+              <td class="text-end pe-2 text-success fw-bold">{{ totalSummary.dateUnder6MRate | number:'1.2-2' }}%</td>
+
+              <!-- Date <= 12T -->
+              <td class="text-end border-start pe-2 text-dark">{{ formatMoneyNum(totalSummary.dateUnder12MValue) }}</td>
+              <td class="text-end pe-2 text-danger fw-bold">{{ totalSummary.dateUnder12MRate | number:'1.2-2' }}%</td>
+
+              <!-- Hàng Lặp -->
+              <td class="text-center border-start text-dark">{{ totalSummary.skuLap | number:'1.0-0' }}</td>
+              <td class="text-center text-secondary">{{ totalSummary.skuLapCoTon | number:'1.0-0' }}</td>
+              <td class="text-center text-danger fw-bold">{{ totalSummary.skuLapHetHang | number:'1.0-0' }}</td>
+
+              <!-- Hàng Key -->
+              <td class="text-center border-start text-dark">{{ totalSummary.skuKey | number:'1.0-0' }}</td>
+              <td class="text-center text-secondary">{{ totalSummary.skuKeyCoTon | number:'1.0-0' }}</td>
+              <td class="text-center text-danger fw-bold">{{ totalSummary.skuKeyHetHang | number:'1.0-0' }}</td>
+
+              <!-- Doanh số Hàng Lập -->
+              <td class="text-end pe-3 border-start text-dark fw-bold fs-4" style="font-size: 13.5px !important;">
+                {{ formatMoneyNum(totalSummary.revenue) }}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
-
-    <!-- ══════════════════════════════════════════════════════════
-         PHẦN 1: WIDGET 6 THẺ KPI TỒN KHO THEO HẠN DÙNG (Tải siêu tốc ~0ms)
-         ══════════════════════════════════════════════════════════ -->
-    <app-inventory-kpi-cards
-      [shopCode]="activeShopCode"
-      [selectedId]="activeExpiryFilter"
-      (cardSelected)="setExpiryFilter($event)"
-      (summaryCalculated)="onKpiCalculated($event)"
-    ></app-inventory-kpi-cards>
-
-    <!-- ══════════════════════════════════════════════════════════
-         PHẦN 2: HHS & TỔNG QUAN TỒN KHO CỦA NHÀ THUỐC ĐANG CHỌN
-         ══════════════════════════════════════════════════════════ -->
-    <div class="row g-3">
-      <!-- HHS Card -->
-      <div class="col-12 col-lg-8">
-        <div class="card h-100">
-          <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
-            <h3 class="card-title m-0">
-              <i class="ti ti-chart-bar me-2 text-primary"></i>
-              Hệ số Doanh số — {{ activeShopTitle }} — Tháng {{ selectedMonth }}/{{ selectedYear }}
-            </h3>
-            <span class="badge"
-                  [class.bg-success-lt]="activeHhs?.salesPercent >= 100"
-                  [class.text-success]="activeHhs?.salesPercent >= 100"
-                  [class.bg-warning-lt]="activeHhs && activeHhs.salesPercent >= 80 && activeHhs.salesPercent < 100"
-                  [class.text-warning]="activeHhs && activeHhs.salesPercent >= 80 && activeHhs.salesPercent < 100"
-                  [class.bg-danger-lt]="activeHhs && activeHhs.salesPercent < 80"
-                  [class.text-danger]="activeHhs && activeHhs.salesPercent < 80"
-                  *ngIf="activeHhs && (activeHhs.amount > 0 || activeHhs.amountR > 0)">
-              {{ activeHhs.salesPercent | number:'1.0-1' }}% DS
-            </span>
-          </div>
-
-          <!-- Loading HHS -->
-          <div class="card-body" *ngIf="isHhsLoading">
-            <div class="placeholder-glow">
-              <div class="placeholder col-12 mb-3" style="height:100px;border-radius:8px;"></div>
-            </div>
-          </div>
-
-          <!-- HHS Data -->
-          <div class="card-body" *ngIf="!isHhsLoading && activeHhs">
-            <div class="row g-3">
-              <!-- DS thực tế -->
-              <div class="col-6 col-md-3">
-                <div class="text-label-caps mb-2">DS Thực tế</div>
-                <div class="h3 text-primary">{{ formatMoney(activeHhs.amountR) }}</div>
-                <div class="text-muted small">/ {{ formatMoney(activeHhs.amount) }} ₫ KH</div>
-                <div class="progress mt-2" style="height:6px;">
-                  <div class="progress-bar"
-                       [class.bg-success]="activeHhs.salesPercent >= 100"
-                       [class.bg-warning]="activeHhs.salesPercent >= 80 && activeHhs.salesPercent < 100"
-                       [class.bg-danger]="activeHhs.salesPercent < 80"
-                       [style.width.%]="min(activeHhs.salesPercent, 100)"></div>
-                </div>
-                <div class="text-muted small mt-1">{{ activeHhs.salesPercent | number:'1.0-1' }}% đạt</div>
-              </div>
-              <!-- HHS điểm -->
-              <div class="col-6 col-md-3">
-                <div class="text-label-caps mb-2">Điểm HHS</div>
-                <div class="h3 text-primary">{{ activeHhs.hhsR | number:'1.0-0' }}</div>
-                <div class="text-muted small">/ {{ activeHhs.hhs | number:'1.0-0' }} điểm KH</div>
-                <div class="progress mt-2" style="height:6px;">
-                  <div class="progress-bar bg-info"
-                       [style.width.%]="min(activeHhs.hhsPercent, 100)"></div>
-                </div>
-                <div class="text-muted small mt-1">{{ activeHhs.hhsPercent | number:'1.0-1' }}% đạt</div>
-              </div>
-              <!-- Tỉ trọng HHS% -->
-              <div class="col-6 col-md-3">
-                <div class="text-label-caps mb-2">Tỉ trọng HHS</div>
-                <div class="h3"
-                     [class.text-success]="activeHhs.hhsRatio >= activeHhs.hhsRatioTarget"
-                     [class.text-danger]="activeHhs.hhsRatio < activeHhs.hhsRatioTarget">
-                  {{ activeHhs.hhsRatio | number:'1.0-1' }}%
-                </div>
-                <div class="text-muted small">/ {{ activeHhs.hhsRatioTarget | number:'1.0-1' }}% KH</div>
-                <div class="text-muted small mt-2">
-                  {{ formatMoney(activeHhs.hhsR * 1000) }} ₫ hàng HHS
-                </div>
-              </div>
-              <!-- Dự kiến cuối tháng -->
-              <div class="col-6 col-md-3">
-                <div class="text-label-caps mb-2">Dự kiến cuối tháng</div>
-                <div class="h3 text-secondary">{{ formatMoney(activeHhs.projectedAmount) }}</div>
-                <div class="text-muted small">/ {{ formatMoney(activeHhs.amount) }} ₫ KH</div>
-                <div class="text-muted small mt-2">
-                  <i class="ti ti-clock me-1"></i>{{ daysElapsed }} / {{ totalDaysInMonth }} ngày
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- HHS empty -->
-          <div class="card-body text-center py-5 text-muted"
-               *ngIf="!isHhsLoading && (!activeHhs || (activeHhs.amount === 0 && activeHhs.amountR === 0))">
-            <i class="ti ti-chart-bar-off" style="font-size:2rem;"></i>
-            <div class="mt-2 small">Không có dữ liệu HHS tháng {{ selectedMonth }}/{{ selectedYear }} cho nhà thuốc này</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tồn kho summary card -->
-      <div class="col-12 col-lg-4">
-        <div class="card h-100">
-          <div class="card-header">
-            <h3 class="card-title m-0">
-              <i class="ti ti-package me-2 text-primary"></i>
-              Tổng quan tồn kho — {{ activeShopTitle }}
-            </h3>
-          </div>
-          <div class="card-body p-0" *ngIf="activeShopSummary">
-            <div class="list-group list-group-flush">
-              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
-                <span class="d-flex align-items-center gap-2">
-                  <span class="badge bg-primary" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
-                  Tổng sản phẩm
-                </span>
-                <strong>{{ activeShopSummary.totalProducts }}</strong>
-              </div>
-              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
-                <span class="d-flex align-items-center gap-2 text-danger">
-                  <span class="badge bg-danger" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
-                  Hết hạn
-                </span>
-                <span class="fw-bold text-danger">{{ activeShopSummary.expiredCount }}</span>
-              </div>
-              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
-                <span class="d-flex align-items-center gap-2 text-danger">
-                  <span class="badge bg-danger" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
-                  Cận date ≤ 3 tháng
-                </span>
-                <span class="fw-bold text-danger">{{ activeShopSummary.dangerCount }}</span>
-              </div>
-              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
-                <span class="d-flex align-items-center gap-2 text-warning">
-                  <span class="badge bg-warning" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
-                  Cần chú ý 3–6 tháng
-                </span>
-                <span class="fw-bold text-warning">{{ activeShopSummary.warningCount }}</span>
-              </div>
-              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
-                <span class="d-flex align-items-center gap-2 text-success">
-                  <span class="badge bg-success" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
-                  An toàn 6–12 tháng
-                </span>
-                <span class="fw-bold text-success">{{ activeShopSummary.safeCount }}</span>
-              </div>
-              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
-                <span class="d-flex align-items-center gap-2">
-                  <span class="badge bg-info" style="width:10px;height:10px;border-radius:50%;padding:0;"></span>
-                  Bình thường (>1 năm)
-                </span>
-                <strong>{{ activeShopSummary.normalCount }}</strong>
-              </div>
-              <div class="list-group-item d-flex justify-content-between align-items-center py-2 px-3 bg-light">
-                <span class="fw-semibold">Tổng giá trị tồn kho</span>
-                <strong class="text-primary">{{ formatMoney(activeShopSummary.totalValue) }} ₫</strong>
-              </div>
-            </div>
-          </div>
-
-          <!-- Loading skeleton -->
-          <div class="card-body" *ngIf="isInventoryLoading">
-            <div class="placeholder-glow">
-              <div class="placeholder col-12 mb-2" style="height:32px;border-radius:4px;" *ngFor="let _ of [1,2,3,4,5,6]"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Sync log (hiện khi đang sync) -->
-    <div class="card mt-3" *ngIf="syncLogs.length > 0">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <h3 class="card-title m-0">
-          <i class="ti ti-terminal me-2"></i>Log đồng bộ Firebase
-        </h3>
-        <button class="btn btn-sm btn-ghost-secondary" (click)="syncLogs = []">Xóa log</button>
-      </div>
-      <div class="card-body p-0">
-        <div class="list-group list-group-flush" style="max-height:200px; overflow-y:auto;">
-          <div class="list-group-item py-2 px-3 small font-monospace"
-               *ngFor="let log of syncLogs"
-               [class.text-danger]="log.type === 'error'"
-               [class.text-success]="log.type === 'success'"
-               [class.text-muted]="log.type === 'info'">
-            <i class="ti me-1"
-               [class.ti-circle-check]="log.type === 'success'"
-               [class.ti-alert-circle]="log.type === 'error'"
-               [class.ti-info-circle]="log.type === 'info'"></i>
-            {{ log.message }}
-          </div>
-        </div>
-      </div>
-    </div>
-
-  </div><!-- /container-xl -->
-</div><!-- /page-body -->
-
-<!-- Loading overlay -->
-<div class="loading-overlay" [class.is-visible]="isInventoryLoading && shopSummaries.length === 0" aria-live="polite">
-  <div class="loading-box">
-    <span class="loader" aria-hidden="true"></span>
-    <strong>{{ loadingTitle || 'Đang tải dữ liệu tồn kho...' }}</strong>
-    <div class="loading-progress" aria-hidden="true">
-      <i [style.width.%]="loadingProgressPercent"></i>
-    </div>
-    <span class="loading-progress-percent">{{ loadingProgressPercent }}%</span>
   </div>
 </div>

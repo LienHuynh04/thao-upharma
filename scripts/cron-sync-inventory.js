@@ -385,8 +385,12 @@ async function runSyncTask() {
         console.error(`[CRON] ✗ Lỗi tính HHS shop ${shop.ShopCode}:`, planErr.message);
       }
 
-      // ── BƯỚC 4: TÍNH TOÁN DÒNG TỔNG QUAN TỒN KHO & DOANH SỐ CHO SHOP ───
+      // ── BƯỚC 4: TÍNH TOÁN DÒNG TỔNG QUAN TỒN KHO CHO SHOP ───
       const totalStockVal = filteredList.reduce((s, i) => s + (Number(i.stockValue) || 0), 0);
+      const itemsUnder3M = filteredList.filter((i) => i.expiryDaysRemaining !== null && i.expiryDaysRemaining <= 90);
+      const dateUnder3MValue = itemsUnder3M.reduce((s, i) => s + (Number(i.stockValue) || 0), 0);
+      const dateUnder3MRate = totalStockVal > 0 ? (dateUnder3MValue / totalStockVal) * 100 : 0;
+
       const itemsUnder6M = filteredList.filter((i) => i.expiryDaysRemaining !== null && i.expiryDaysRemaining <= 180);
       const dateUnder6MValue = itemsUnder6M.reduce((s, i) => s + (Number(i.stockValue) || 0), 0);
       const dateUnder6MRate = totalStockVal > 0 ? (dateUnder6MValue / totalStockVal) * 100 : 0;
@@ -395,32 +399,17 @@ async function runSyncTask() {
       const dateUnder12MValue = itemsUnder12M.reduce((s, i) => s + (Number(i.stockValue) || 0), 0);
       const dateUnder12MRate = totalStockVal > 0 ? (dateUnder12MValue / totalStockVal) * 100 : 0;
 
-      const uniqueSKUs = new Set(filteredList.map((i) => i.ProductCode).filter(Boolean)).size || 100;
-      const skuLap = Math.round(uniqueSKUs * 0.32);
-      const skuLapHetHang = Math.max(0, Math.round(skuLap * 0.05));
-      const skuLapCoTon = skuLap - skuLapHetHang;
-
-      const skuKey = Math.round(uniqueSKUs * 0.28);
-      const skuKeyHetHang = Math.max(0, Math.round(skuKey * 0.07));
-      const skuKeyCoTon = skuKey - skuKeyHetHang;
-
       overviewItems.push({
         province: extractProvince(shop.ShopName),
         shopCode: shop.ShopCode,
         shopName: shop.ShopName,
-        employeeCount: 4,
         totalStockValue: totalStockVal,
+        dateUnder3MValue,
+        dateUnder3MRate: Number(dateUnder3MRate.toFixed(2)),
         dateUnder6MValue,
         dateUnder6MRate: Number(dateUnder6MRate.toFixed(2)),
         dateUnder12MValue,
         dateUnder12MRate: Number(dateUnder12MRate.toFixed(2)),
-        skuLap,
-        skuLapCoTon,
-        skuLapHetHang,
-        skuKey,
-        skuKeyCoTon,
-        skuKeyHetHang,
-        revenue: amountActual,
       });
 
       totalSyncedShops++;

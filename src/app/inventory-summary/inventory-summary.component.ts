@@ -2,62 +2,31 @@ import { CommonModule, DecimalPipe } from "@angular/common";
 import { ChangeDetectorRef, Component, OnInit, inject } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { environment } from "../../environments/environment";
-import { RawRecord, ShopInfo, ShopPlanApiItem, UpharmaService } from "../upharma.service";
-import { ExcelExportService } from "../shared/services/excel-export.service";
-import { isWarehouseStore, normalizeInventoryRow } from "../inventory-utils";
-
-export interface EmployeeOverviewItem {
-  employeeCode: string;
-  employeeName: string;
-  dateUnder6MValue?: number;
-  dateUnder6MRate?: number;
-  dateUnder12MValue?: number;
-  dateUnder12MRate?: number;
-  skuLap?: number;
-  skuLapCoTon?: number;
-  skuLapHetHang?: number;
-  skuKey?: number;
-  skuKeyCoTon?: number;
-  skuKeyHetHang?: number;
-  revenue?: number;
-}
+import { RawRecord, ShopInfo, UpharmaService } from "../upharma.service";
+import { isWarehouseStore } from "../inventory-utils";
 
 export interface ShopOverviewItem {
   province: string;
   shopCode: string;
   shopName: string;
-  employeeCount: number;
-  employees: EmployeeOverviewItem[];
   totalStockValue: number;
+  dateUnder3MValue: number;
+  dateUnder3MRate: number;
   dateUnder6MValue: number;
   dateUnder6MRate: number;
   dateUnder12MValue: number;
   dateUnder12MRate: number;
-  skuLap: number;
-  skuLapCoTon: number;
-  skuLapHetHang: number;
-  skuKey: number;
-  skuKeyCoTon: number;
-  skuKeyHetHang: number;
-  revenue: number;
-  expanded?: boolean;
 }
 
 export interface OverviewTotalSummary {
   shopsCount: number;
-  employeesCount: number;
   totalStockValue: number;
+  dateUnder3MValue: number;
+  dateUnder3MRate: number;
   dateUnder6MValue: number;
   dateUnder6MRate: number;
   dateUnder12MValue: number;
   dateUnder12MRate: number;
-  skuLap: number;
-  skuLapCoTon: number;
-  skuLapHetHang: number;
-  skuKey: number;
-  skuKeyCoTon: number;
-  skuKeyHetHang: number;
-  revenue: number;
 }
 
 @Component({
@@ -70,27 +39,20 @@ export interface OverviewTotalSummary {
 export class InventorySummaryComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly upharma = inject(UpharmaService);
-  private readonly excelService = inject(ExcelExportService);
 
-  // ── Dữ liệu & Danh sách ──────────────────────────────────────────
+  // ── Dữ liệu ─────────────────────────────────────────────────────
   shopRows: ShopOverviewItem[] = [];
   rawShops: ShopInfo[] = [];
 
-  // ── Bộ lọc & Điều khiển ─────────────────────────────────────────
+  // ── Bộ lọc ──────────────────────────────────────────────────────
   selectedPeriod = "";
   availablePeriods: { value: string; label: string; year: number; month: number }[] = [];
   activeProvince: string = "all";
   searchText = "";
-  allExpanded = false;
 
   // ── Trạng thái ──────────────────────────────────────────────────
   isLoading = false;
-  isSyncing = false;
-  syncStatus = "";
   errorText = "";
-  successText = "";
-
-  // ── Thời gian ───────────────────────────────────────────────────
   todayDisplay = "";
 
   // ── Getters ─────────────────────────────────────────────────────
@@ -113,54 +75,32 @@ export class InventorySummaryComponent implements OnInit {
         (r) =>
           r.shopCode.toLowerCase().includes(q) ||
           r.shopName.toLowerCase().includes(q) ||
-          r.province.toLowerCase().includes(q) ||
-          (r.employees &&
-            r.employees.some(
-              (e) =>
-                e.employeeName.toLowerCase().includes(q) ||
-                e.employeeCode.toLowerCase().includes(q),
-            )),
+          r.province.toLowerCase().includes(q),
       );
     }
     return list;
   }
 
-  get totalFilteredEmployees(): number {
-    return this.filteredRows.reduce((sum, r) => sum + (r.employeeCount || 0), 0);
-  }
-
   get totalSummary(): OverviewTotalSummary {
     const rows = this.filteredRows;
     const shopsCount = rows.length;
-    const employeesCount = rows.reduce((s, r) => s + (r.employeeCount || 0), 0);
     const totalStockValue = rows.reduce((s, r) => s + (r.totalStockValue || 0), 0);
+    const dateUnder3MValue = rows.reduce((s, r) => s + (r.dateUnder3MValue || 0), 0);
+    const dateUnder3MRate = totalStockValue > 0 ? (dateUnder3MValue / totalStockValue) * 100 : 0;
     const dateUnder6MValue = rows.reduce((s, r) => s + (r.dateUnder6MValue || 0), 0);
     const dateUnder6MRate = totalStockValue > 0 ? (dateUnder6MValue / totalStockValue) * 100 : 0;
     const dateUnder12MValue = rows.reduce((s, r) => s + (r.dateUnder12MValue || 0), 0);
     const dateUnder12MRate = totalStockValue > 0 ? (dateUnder12MValue / totalStockValue) * 100 : 0;
-    const skuLap = rows.reduce((s, r) => s + (r.skuLap || 0), 0);
-    const skuLapCoTon = rows.reduce((s, r) => s + (r.skuLapCoTon || 0), 0);
-    const skuLapHetHang = rows.reduce((s, r) => s + (r.skuLapHetHang || 0), 0);
-    const skuKey = rows.reduce((s, r) => s + (r.skuKey || 0), 0);
-    const skuKeyCoTon = rows.reduce((s, r) => s + (r.skuKeyCoTon || 0), 0);
-    const skuKeyHetHang = rows.reduce((s, r) => s + (r.skuKeyHetHang || 0), 0);
-    const revenue = rows.reduce((s, r) => s + (r.revenue || 0), 0);
 
     return {
       shopsCount,
-      employeesCount,
       totalStockValue,
+      dateUnder3MValue,
+      dateUnder3MRate,
       dateUnder6MValue,
       dateUnder6MRate,
       dateUnder12MValue,
       dateUnder12MRate,
-      skuLap,
-      skuLapCoTon,
-      skuLapHetHang,
-      skuKey,
-      skuKeyCoTon,
-      skuKeyHetHang,
-      revenue,
     };
   }
 
@@ -178,7 +118,6 @@ export class InventorySummaryComponent implements OnInit {
     void this.fetchOverviewData();
   }
 
-  // ─── Thiết lập danh sách Tháng/Năm ──────────────────────────────
   private setupPeriods(): void {
     const today = new Date();
     const currentYear = today.getFullYear();
@@ -219,20 +158,7 @@ export class InventorySummaryComponent implements OnInit {
     this.cdr.detectChanges();
   }
 
-  toggleExpandAll(): void {
-    this.allExpanded = !this.allExpanded;
-    for (const r of this.shopRows) {
-      r.expanded = this.allExpanded;
-    }
-    this.cdr.detectChanges();
-  }
-
-  toggleRow(row: ShopOverviewItem): void {
-    row.expanded = !row.expanded;
-    this.cdr.detectChanges();
-  }
-
-  // ─── Chiến lược Tải siêu tốc ~0ms ───────────────────────────────
+  // ─── Cache-first (~0ms) ─────────────────────────────────────────
   private loadFromCache(): void {
     const cacheKey = `upharma_shops_overview_cache_${this.selectedPeriod}`;
     try {
@@ -244,9 +170,7 @@ export class InventorySummaryComponent implements OnInit {
           this.cdr.detectChanges();
         }
       }
-    } catch (e) {
-      console.warn("[Overview] Lỗi đọc cache:", e);
-    }
+    } catch (e) {}
   }
 
   private saveToCache(rows: ShopOverviewItem[]): void {
@@ -254,16 +178,6 @@ export class InventorySummaryComponent implements OnInit {
     try {
       localStorage.setItem(cacheKey, JSON.stringify(rows));
     } catch (e) {}
-  }
-
-  async reload(): Promise<void> {
-    this.isLoading = true;
-    this.errorText = "";
-    this.successText = "";
-    this.cdr.detectChanges();
-    await this.fetchOverviewData(true);
-    this.isLoading = false;
-    this.cdr.detectChanges();
   }
 
   // ─── Tải dữ liệu từ Firebase RTDB hoặc Tính toán ────────────────
@@ -306,11 +220,6 @@ export class InventorySummaryComponent implements OnInit {
       const firebaseDbUrl = (environment as any).firebaseDbUrl as string | undefined;
       const normalizedFirebase = firebaseDbUrl ? firebaseDbUrl.replace(/\/$/, "") : "";
 
-      const currentPeriodObj = this.availablePeriods.find((p) => p.value === this.selectedPeriod) || this.availablePeriods[0];
-      const year = currentPeriodObj.year;
-      const month = currentPeriodObj.month;
-      const targetMonthStr = this.selectedPeriod;
-
       const results: ShopOverviewItem[] = [];
 
       for (const shop of shops) {
@@ -344,9 +253,9 @@ export class InventorySummaryComponent implements OnInit {
 
         // C. Phân loại hạn dùng & Tính giá trị
         let totalStockValue = 0;
+        let dateUnder3MValue = 0;
         let dateUnder6MValue = 0;
         let dateUnder12MValue = 0;
-        const productsSet = new Set<string>();
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -366,7 +275,6 @@ export class InventorySummaryComponent implements OnInit {
           const stockVal = price * qty;
 
           totalStockValue += stockVal;
-          if (pCode) productsSet.add(pCode);
 
           // HSD
           const expRaw = item["ExpDate"] ?? item["ExpireDate"] ?? item["HanDung"] ?? item["HSD"] ?? "";
@@ -390,6 +298,9 @@ export class InventorySummaryComponent implements OnInit {
             if (expDate) {
               expDate.setHours(0, 0, 0, 0);
               const diffDays = Math.floor((expDate.getTime() - todayMs) / 86400000);
+              if (diffDays <= 90) {
+                dateUnder3MValue += stockVal;
+              }
               if (diffDays <= 180) {
                 dateUnder6MValue += stockVal;
               }
@@ -400,83 +311,21 @@ export class InventorySummaryComponent implements OnInit {
           }
         }
 
+        const dateUnder3MRate = totalStockValue > 0 ? (dateUnder3MValue / totalStockValue) * 100 : 0;
         const dateUnder6MRate = totalStockValue > 0 ? (dateUnder6MValue / totalStockValue) * 100 : 0;
         const dateUnder12MRate = totalStockValue > 0 ? (dateUnder12MValue / totalStockValue) * 100 : 0;
-
-        // D. Lấy Doanh số thực tế
-        let revenue = 0;
-        try {
-          const session = this.upharma.getSession();
-          if (session) {
-            const planRes = await this.upharma.loadShopPlanByTime({
-              TimeStart: `${year}-01-01 00:00:00`,
-              TimeEnd: `${year}-12-31 23:59:59`,
-              ShopCode: shop.ShopCode,
-              Token: session.Token,
-              uPharmaID: session.UserInfo.uPharmaID,
-            });
-
-            const currentPlans = (planRes.ShopPlanLst || []).filter((p) => {
-              const m = String(p.Month || p.TimeMonth || "");
-              return m.includes("-") ? m === targetMonthStr : Number(m) === month;
-            });
-
-            revenue = currentPlans.reduce((s, p) => s + (Number(p.AmountR) || 0), 0);
-
-            // Fallback EmployeePlanLst
-            if (revenue === 0) {
-              try {
-                const empRes = await this.upharma.callEndpoint<any>("/EmployeePlan/GetEmployeePlanLst", {
-                  Month: month,
-                  Year: year,
-                  ShopCode: shop.ShopCode,
-                  Token: session.Token,
-                  uPharmaID: session.UserInfo.uPharmaID,
-                });
-                const empList: any[] = Array.isArray(empRes) ? empRes : empRes?.data || empRes?.items || [];
-                if (empList.length > 0) {
-                  revenue = empList.reduce((s, p) => s + (Number(p.AmountR) || 0), 0);
-                }
-              } catch {}
-            }
-          }
-        } catch {}
-
-        // E. Hàng lặp & Hàng key
-        const uniqueSKUs = productsSet.size || (inventoryRows.length > 0 ? Math.round(inventoryRows.length * 0.7) : 100);
-        const skuLap = Math.round(uniqueSKUs * 0.32);
-        const skuLapHetHang = Math.max(0, Math.round(skuLap * 0.05));
-        const skuLapCoTon = skuLap - skuLapHetHang;
-
-        const skuKey = Math.round(uniqueSKUs * 0.28);
-        const skuKeyHetHang = Math.max(0, Math.round(skuKey * 0.07));
-        const skuKeyCoTon = skuKey - skuKeyHetHang;
-
-        // F. Danh sách nhân viên
-        const employees: EmployeeOverviewItem[] = [
-          { employeeCode: `${shop.ShopCode}-NV1`, employeeName: "Dược sĩ phụ trách 1", revenue: Math.round(revenue * 0.55) },
-          { employeeCode: `${shop.ShopCode}-NV2`, employeeName: "Dược sĩ phụ trách 2", revenue: Math.round(revenue * 0.45) },
-        ];
 
         results.push({
           province: this.extractProvince(shop.ShopName),
           shopCode: shop.ShopCode,
           shopName: shop.ShopName || shop.ShopCode,
-          employeeCount: employees.length,
-          employees,
           totalStockValue,
+          dateUnder3MValue,
+          dateUnder3MRate: Number(dateUnder3MRate.toFixed(2)),
           dateUnder6MValue,
           dateUnder6MRate: Number(dateUnder6MRate.toFixed(2)),
           dateUnder12MValue,
           dateUnder12MRate: Number(dateUnder12MRate.toFixed(2)),
-          skuLap,
-          skuLapCoTon,
-          skuLapHetHang,
-          skuKey,
-          skuKeyCoTon,
-          skuKeyHetHang,
-          revenue,
-          expanded: false,
         });
       }
 
@@ -490,129 +339,6 @@ export class InventorySummaryComponent implements OnInit {
       this.isLoading = false;
       this.cdr.detectChanges();
     }
-  }
-
-  // ─── Đồng bộ lên Firebase ───────────────────────────────────────
-  async syncAllToFirebase(): Promise<void> {
-    this.isSyncing = true;
-    this.syncStatus = "Đang đồng bộ...";
-    this.errorText = "";
-    this.successText = "";
-    this.cdr.detectChanges();
-
-    try {
-      await this.calculateAllShopsOverview();
-
-      const firebaseDbUrl = (environment as any).firebaseDbUrl as string | undefined;
-      if (!firebaseDbUrl) throw new Error("Chưa cấu hình firebaseDbUrl");
-
-      const normalizedFirebase = firebaseDbUrl.replace(/\/$/, "");
-      const payload = {
-        updatedAt: Date.now(),
-        fetchedAt: new Date().toISOString(),
-        month: this.selectedPeriod,
-        totalShops: this.shopRows.length,
-        items: this.shopRows,
-      };
-
-      const putRes = await fetch(`${normalizedFirebase}/shops_inventory_overview.json`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!putRes.ok) throw new Error(`HTTP ${putRes.status}`);
-
-      this.successText = `Đã đồng bộ thành công ${this.shopRows.length} nhà thuốc lên Firebase!`;
-    } catch (err) {
-      this.errorText = `Lỗi đồng bộ Firebase: ${err instanceof Error ? err.message : String(err)}`;
-    } finally {
-      this.isSyncing = false;
-      this.syncStatus = "";
-      this.cdr.detectChanges();
-      if (this.successText) {
-        setTimeout(() => {
-          this.successText = "";
-          this.cdr.detectChanges();
-        }, 4000);
-      }
-    }
-  }
-
-  // ─── Xuất Excel ────────────────────────────────────────────────
-  async exportExcel(): Promise<void> {
-    const rows = this.filteredRows;
-    if (rows.length === 0) return;
-
-    const data: Record<string, any>[] = [];
-
-    for (const r of rows) {
-      data.push({
-        "Tỉnh": r.province,
-        "Mã NT": r.shopCode,
-        "Mã Nhân Viên": "TỔNG NT",
-        "Tên Nhân Viên": `${r.employeeCount} nhân sự`,
-        "Date ≤ 6T - Giá Trị": r.dateUnder6MValue,
-        "Date ≤ 6T - %": `${r.dateUnder6MRate.toFixed(2)}%`,
-        "Date ≤ 12T - Giá Trị": r.dateUnder12MValue,
-        "Date ≤ 12T - %": `${r.dateUnder12MRate.toFixed(2)}%`,
-        "Hàng Lặp - SKU Lặp": r.skuLap,
-        "Hàng Lặp - Có Tồn": r.skuLapCoTon,
-        "Hàng Lặp - Hết Hàng": r.skuLapHetHang,
-        "Hàng Key - SKU Key": r.skuKey,
-        "Hàng Key - Có Tồn": r.skuKeyCoTon,
-        "Hàng Key - Hết Hàng": r.skuKeyHetHang,
-        "Doanh Số": r.revenue,
-      });
-
-      if (r.employees && r.employees.length > 0) {
-        for (const emp of r.employees) {
-          data.push({
-            "Tỉnh": "",
-            "Mã NT": "",
-            "Mã Nhân Viên": emp.employeeCode,
-            "Tên Nhân Viên": emp.employeeName,
-            "Date ≤ 6T - Giá Trị": emp.dateUnder6MValue || 0,
-            "Date ≤ 6T - %": emp.dateUnder6MRate ? `${emp.dateUnder6MRate.toFixed(2)}%` : "",
-            "Date ≤ 12T - Giá Trị": emp.dateUnder12MValue || 0,
-            "Date ≤ 12T - %": emp.dateUnder12MRate ? `${emp.dateUnder12MRate.toFixed(2)}%` : "",
-            "Hàng Lặp - SKU Lặp": emp.skuLap || "",
-            "Hàng Lặp - Có Tồn": emp.skuLapCoTon || "",
-            "Hàng Lặp - Hết Hàng": emp.skuLapHetHang || "",
-            "Hàng Key - SKU Key": emp.skuKey || "",
-            "Hàng Key - Có Tồn": emp.skuKeyCoTon || "",
-            "Hàng Key - Hết Hàng": emp.skuKeyHetHang || "",
-            "Doanh Số": emp.revenue || 0,
-          });
-        }
-      }
-    }
-
-    // Dòng tổng
-    const tot = this.totalSummary;
-    data.push({
-      "Tỉnh": "TỔNG",
-      "Mã NT": `${tot.shopsCount} NT`,
-      "Mã Nhân Viên": `${tot.employeesCount} nhân sự`,
-      "Tên Nhân Viên": "—",
-      "Date ≤ 6T - Giá Trị": tot.dateUnder6MValue,
-      "Date ≤ 6T - %": `${tot.dateUnder6MRate.toFixed(2)}%`,
-      "Date ≤ 12T - Giá Trị": tot.dateUnder12MValue,
-      "Date ≤ 12T - %": `${tot.dateUnder12MRate.toFixed(2)}%`,
-      "Hàng Lặp - SKU Lặp": tot.skuLap,
-      "Hàng Lặp - Có Tồn": tot.skuLapCoTon,
-      "Hàng Lặp - Hết Hàng": tot.skuLapHetHang,
-      "Hàng Key - SKU Key": tot.skuKey,
-      "Hàng Key - Có Tồn": tot.skuKeyCoTon,
-      "Hàng Key - Hết Hàng": tot.skuKeyHetHang,
-      "Doanh Số": tot.revenue,
-    });
-
-    await this.excelService.exportJsonToExcel(
-      data,
-      `Bao-Cao-Ton-Kho-Tong-Quan-${this.selectedPeriod}.xlsx`,
-      "Tong-Quan",
-    );
   }
 
   // ─── Helpers ───────────────────────────────────────────────────

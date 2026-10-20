@@ -1,6 +1,6 @@
 <!-- ══════════════════════════════════════════════════════════════════════
-     BÁO CÁO TỔNG QUAN TỒN KHO & DOANH SỐ — BẢNG ĐA NHÀ THUỐC
-     Theo đúng chuẩn UI ảnh mẫu (webappupharma.web.app)
+     BÁO CÁO TỔNG QUAN TỒN KHO THEO HẠN DÙNG (CÁC DATE)
+     Ngắn gọn | Không chọn từng nhà | Hiển thị toàn bộ các nhà thuốc
      ══════════════════════════════════════════════════════════════════════ -->
 
 <div class="page-header d-print-none mb-2">
@@ -8,11 +8,11 @@
     <!-- Breadcrumb / Header Title -->
     <div class="d-flex align-items-center justify-content-between mb-3">
       <div class="d-flex align-items-center gap-2">
-        <span class="fs-2 fw-extrabold text-dark" style="font-weight: 800; color: #1e293b;">| Tổng Quan</span>
+        <span class="fs-2 fw-extrabold text-dark" style="font-weight: 800; color: #1e293b;">| Tổng Quan Tồn Kho</span>
       </div>
     </div>
 
-    <!-- Sub-navigation Tabs (Theo đúng thanh điều hướng ảnh mẫu) -->
+    <!-- Sub-navigation Tabs -->
     <div class="d-flex align-items-center gap-4 border-bottom pb-2 mb-3 text-nowrap overflow-auto sub-nav-tabs">
       <a class="nav-link text-success fw-bold border-bottom border-success border-3 pb-2 mb-n2 d-flex align-items-center gap-1 active-sub-tab" href="javascript:void(0)">
         <i class="ti ti-chart-bar" style="font-size: 1.1rem;"></i> Tổng Quan
@@ -35,24 +35,21 @@
     <div class="alert alert-danger py-2 px-3 small d-flex align-items-center gap-2 mb-2" *ngIf="errorText">
       <i class="ti ti-alert-circle"></i><span>{{ errorText }}</span>
     </div>
-    <div class="alert alert-success py-2 px-3 small d-flex align-items-center gap-2 mb-2" *ngIf="successText">
-      <i class="ti ti-circle-check"></i><span>{{ successText }}</span>
-    </div>
 
-    <!-- Thanh Lọc & Tác Vụ (Controls Bar) -->
+    <!-- Thanh Lọc (Controls Bar - Đã bỏ toàn bộ các nút bên phải) -->
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
       <div class="d-flex align-items-center flex-wrap gap-2">
         <!-- Dropdown Tháng/Năm -->
         <select
           class="form-select form-select-sm fw-bold border-secondary-subtle"
-          style="width: auto; min-width: 140px; height: 34px; cursor: pointer; background-color: #ffffff;"
+          style="width: auto; min-width: 135px; height: 34px; cursor: pointer; background-color: #ffffff;"
           [(ngModel)]="selectedPeriod"
           (ngModelChange)="onPeriodChange()"
         >
           <option *ngFor="let p of availablePeriods" [value]="p.value">Tháng {{ p.label }}</option>
         </select>
 
-        <!-- Bộ lọc Tỉnh/Khu vực dạng Pill Buttons -->
+        <!-- Bộ lọc Tỉnh/Khu vực -->
         <div class="btn-group btn-group-sm" role="group">
           <button
             type="button"
@@ -84,193 +81,90 @@
             type="text"
             class="form-control form-control-sm"
             style="height: 34px;"
-            placeholder="Tìm nhân viên hoặc shop..."
+            placeholder="Tìm theo mã NT, tên shop, tỉnh..."
             [(ngModel)]="searchText"
             (ngModelChange)="applyFilter()"
           />
         </div>
 
         <!-- Dòng thống kê số lượng -->
-        <span class="text-secondary small ms-1" style="font-size: 13px;">
-          {{ totalFilteredEmployees }} nhân sự · {{ filteredRows.length }} nhà thuốc · số liệu tới ngày {{ todayDisplay }}
+        <span class="text-secondary small ms-2" style="font-size: 13px;">
+          {{ filteredRows.length }} nhà thuốc · số liệu tới ngày {{ todayDisplay }}
         </span>
-      </div>
-
-      <!-- Nút Tác vụ bên phải -->
-      <div class="d-flex align-items-center gap-2 ms-auto flex-wrap">
-        <!-- Nút Mở/Đóng nhân sự -->
-        <button
-          class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 fw-medium"
-          style="height: 34px;"
-          (click)="toggleExpandAll()"
-          title="Mở rộng hoặc thu gọn danh sách nhân sự"
-        >
-          <i class="ti" [class.ti-plus]="!allExpanded" [class.ti-minus]="allExpanded"></i>
-          {{ allExpanded ? 'Đóng nhân viên' : '• Mở nhân viên' }}
-        </button>
-
-        <!-- Nút Xuất Form Excel -->
-        <button
-          class="btn btn-sm btn-success d-flex align-items-center gap-1 fw-bold"
-          style="height: 34px; background-color: #0d472b; border-color: #0d472b;"
-          (click)="exportExcel()"
-          [disabled]="filteredRows.length === 0"
-          title="Xuất bảng số liệu ra file Excel"
-        >
-          <i class="ti ti-download"></i>
-          ↓ Xuất Form Excel
-        </button>
-
-        <!-- Nút Tải lại -->
-        <button
-          class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1"
-          style="height: 34px;"
-          (click)="reload()"
-          [disabled]="isLoading"
-          title="Tải lại dữ liệu từ cache"
-        >
-          <i class="ti ti-refresh" [class.spin]="isLoading"></i>
-          Tải lại
-        </button>
-
-        <!-- Nút Đồng bộ → Firebase -->
-        <button
-          class="btn btn-sm btn-outline-success d-flex align-items-center gap-1"
-          style="height: 34px;"
-          (click)="syncAllToFirebase()"
-          [disabled]="isSyncing"
-          title="Tính toán và đẩy dữ liệu lên Firebase RTDB"
-        >
-          <i class="ti" [class.ti-cloud-upload]="!isSyncing" [class.ti-loader]="isSyncing" [class.spin]="isSyncing"></i>
-          {{ isSyncing ? syncStatus : 'Đồng bộ → Firebase' }}
-        </button>
       </div>
     </div>
   </div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════
-     BẢNG DỮ LIỆU CHÍNH (Cấu trúc & Cột chính xác 100% như ảnh mẫu)
+     BẢNG TỒN KHO THEO HẠN DÙNG (CHỈ GIỮ LẠI TỈNH, MÃ NT VÀ CÁC DATE)
      ══════════════════════════════════════════════════════════════════════ -->
 <div class="page-body mt-0">
   <div class="container-fluid px-3">
     <div class="card shadow-sm border-0" style="border-radius: 8px; overflow: hidden;">
       <div class="table-responsive" style="max-height: calc(100vh - 230px); overflow-y: auto;">
         <table class="table table-vcenter table-bordered table-sm card-table table-hover text-nowrap m-0 custom-matrix-table">
-          <!-- THEAD 2 TẦNG (CỘT CHUẨN THEO ẢNH) -->
+          <!-- THEAD 2 TẦNG (TỈNH, MÃ NT, VÀ CÁC DATE) -->
           <thead class="sticky-top bg-light" style="z-index: 10;">
-            <!-- Tầng 1: Nhóm cột chính -->
+            <!-- Tầng 1: Tỉnh, Mã NT, Date <= 3T, Date <= 6T, Date <= 12T, Tổng Tồn -->
             <tr style="background-color: #f8fafc; font-weight: 700; font-size: 12.5px; color: #1e293b;">
-              <th rowspan="2" class="align-middle text-start ps-3" style="min-width: 110px;">Tỉnh</th>
-              <th rowspan="2" class="align-middle text-start" style="min-width: 105px;">Mã NT</th>
-              <th rowspan="2" class="align-middle text-center" style="min-width: 105px;">Mã Nhân Viên</th>
-              <th rowspan="2" class="align-middle text-start ps-2" style="min-width: 125px;">Tên Nhân Viên</th>
-              <th colspan="2" class="align-middle text-center border-start border-end" style="background-color: #edf2f7;">Date ≤ 6T</th>
+              <th rowspan="2" class="align-middle text-start ps-3" style="min-width: 140px;">Tỉnh</th>
+              <th rowspan="2" class="align-middle text-start ps-2" style="min-width: 160px;">Mã NT</th>
+              <th colspan="2" class="align-middle text-center border-start border-end" style="background-color: #edf2f7;">Date ≤ 3T</th>
+              <th colspan="2" class="align-middle text-center border-end" style="background-color: #edf2f7;">Date ≤ 6T</th>
               <th colspan="2" class="align-middle text-center border-end" style="background-color: #edf2f7;">Date ≤ 12T</th>
-              <th colspan="3" class="align-middle text-center border-end" style="background-color: #edf2f7;">Hàng Lặp</th>
-              <th colspan="3" class="align-middle text-center border-end" style="background-color: #edf2f7;">Hàng Key</th>
-              <th rowspan="2" class="align-middle text-end pe-3 border-start" style="min-width: 115px;">
-                Hàng Lập<br><span style="font-size: 11px; font-weight: 600; color: #64748b;">Doanh số</span>
-              </th>
+              <th rowspan="2" class="align-middle text-end pe-3 border-start" style="min-width: 150px;">Tổng Tồn Kho</th>
             </tr>
-            <!-- Tầng 2: Cột con -->
+            <!-- Tầng 2: Giá trị và % -->
             <tr style="background-color: #f1f5f9; font-size: 11.5px; font-weight: 600; color: #475569;">
+              <!-- Date <= 3T -->
+              <th class="border-start text-end py-1 pe-2" style="min-width: 110px;">Giá Trị</th>
+              <th class="text-end py-1 pe-2" style="min-width: 65px;">%</th>
               <!-- Date <= 6T -->
-              <th class="border-start text-end py-1 pe-2" style="min-width: 95px;">Giá Trị</th>
-              <th class="text-end py-1 pe-2" style="min-width: 60px;">%</th>
+              <th class="border-start text-end py-1 pe-2" style="min-width: 110px;">Giá Trị</th>
+              <th class="text-end py-1 pe-2" style="min-width: 65px;">%</th>
               <!-- Date <= 12T -->
-              <th class="border-start text-end py-1 pe-2" style="min-width: 95px;">Giá Trị</th>
-              <th class="text-end py-1 pe-2" style="min-width: 60px;">%</th>
-              <!-- Hàng Lặp -->
-              <th class="border-start text-center py-1" style="min-width: 70px;">SKU Lặp</th>
-              <th class="text-center py-1" style="min-width: 65px;">Có Tồn</th>
-              <th class="text-center py-1" style="min-width: 70px;">Hết Hàng</th>
-              <!-- Hàng Key -->
-              <th class="border-start text-center py-1" style="min-width: 70px;">SKU Key</th>
-              <th class="text-center py-1" style="min-width: 65px;">Có Tồn</th>
-              <th class="text-center py-1" style="min-width: 70px;">Hết Hàng</th>
+              <th class="border-start text-end py-1 pe-2" style="min-width: 110px;">Giá Trị</th>
+              <th class="text-end py-1 pe-2" style="min-width: 65px;">%</th>
             </tr>
           </thead>
 
-          <!-- TBODY DANH SÁCH NHÀ THUỐC -->
+          <!-- TBODY: CÁC DÒNG NHÀ THUỐC -->
           <tbody>
             @for (row of filteredRows; track row.shopCode) {
-              <!-- ── Hàng Nhà Thuốc ── -->
-              <tr class="fw-medium shop-row" [class.row-expanded]="row.expanded">
+              <tr class="fw-medium shop-row">
                 <!-- Tỉnh -->
                 <td class="text-start ps-3 text-secondary">{{ row.province }}</td>
                 <!-- Mã NT -->
-                <td class="text-start fw-bold text-dark">{{ row.shopCode }}</td>
-                <!-- Mã Nhân Viên: TỔNG NT -->
-                <td class="text-center">
-                  <span
-                    class="badge bg-secondary-lt fw-bold cursor-pointer"
-                    (click)="toggleRow(row)"
-                    style="font-size: 11px; padding: 3px 8px; border-radius: 4px;"
-                    title="Bấm để mở danh sách nhân sự"
-                  >
-                    TỔNG NT
-                    <i class="ti ms-1" [class.ti-chevron-down]="!row.expanded" [class.ti-chevron-up]="row.expanded" style="font-size: 9px;"></i>
-                  </span>
+                <td class="text-start ps-2">
+                  <span class="fw-bold text-dark">{{ row.shopCode }}</span>
+                  <small class="text-muted d-block text-truncate" style="max-width: 200px;" [title]="row.shopName">
+                    {{ row.shopName }}
+                  </small>
                 </td>
-                <!-- Tên Nhân Viên: X nhân sự -->
-                <td class="text-start ps-2 text-dark">{{ row.employeeCount }} nhân sự</td>
+
+                <!-- Date <= 3T -->
+                <td class="text-end border-start pe-2 text-dark">{{ formatMoneyNum(row.dateUnder3MValue) }}</td>
+                <td class="text-end pe-2 fw-bold text-danger">{{ row.dateUnder3MRate | number:'1.2-2' }}%</td>
 
                 <!-- Date <= 6T -->
                 <td class="text-end border-start pe-2 text-dark">{{ formatMoneyNum(row.dateUnder6MValue) }}</td>
-                <td class="text-end pe-2 text-success fw-bold">{{ row.dateUnder6MRate | number:'1.2-2' }}%</td>
+                <td class="text-end pe-2 fw-bold text-success">{{ row.dateUnder6MRate | number:'1.2-2' }}%</td>
 
                 <!-- Date <= 12T -->
                 <td class="text-end border-start pe-2 text-dark">{{ formatMoneyNum(row.dateUnder12MValue) }}</td>
                 <td class="text-end pe-2 fw-bold text-danger">{{ row.dateUnder12MRate | number:'1.2-2' }}%</td>
 
-                <!-- Hàng Lặp -->
-                <td class="text-center border-start text-dark">{{ row.skuLap }}</td>
-                <td class="text-center text-secondary">{{ row.skuLapCoTon }}</td>
-                <td class="text-center" [class.text-danger]="row.skuLapHetHang > 0" [class.fw-bold]="row.skuLapHetHang > 0">
-                  {{ row.skuLapHetHang }}
-                </td>
-
-                <!-- Hàng Key -->
-                <td class="text-center border-start text-dark">{{ row.skuKey }}</td>
-                <td class="text-center text-secondary">{{ row.skuKeyCoTon }}</td>
-                <td class="text-center" [class.text-danger]="row.skuKeyHetHang > 0" [class.fw-bold]="row.skuKeyHetHang > 0">
-                  {{ row.skuKeyHetHang }}
-                </td>
-
-                <!-- Doanh số Hàng Lập -->
-                <td class="text-end pe-3 border-start text-dark fw-bold">
-                  {{ formatMoneyNum(row.revenue) }}
+                <!-- Tổng Tồn Kho -->
+                <td class="text-end pe-3 border-start fw-bold text-primary">
+                  {{ formatMoneyNum(row.totalStockValue) }} ₫
                 </td>
               </tr>
-
-              <!-- ── Hàng Nhân Sự (Mở rộng khi click Mở nhân viên) ── -->
-              @if (row.expanded && row.employees && row.employees.length > 0) {
-                @for (emp of row.employees; track emp.employeeCode) {
-                  <tr class="employee-row" style="background-color: #f8fafc; font-size: 12px;">
-                    <td class="ps-4 text-muted"><small>↳</small></td>
-                    <td></td>
-                    <td class="text-center font-monospace text-primary small">{{ emp.employeeCode }}</td>
-                    <td class="text-start ps-2 text-dark">{{ emp.employeeName }}</td>
-                    <td class="text-end border-start pe-2 text-muted">{{ emp.dateUnder6MValue ? formatMoneyNum(emp.dateUnder6MValue) : '—' }}</td>
-                    <td class="text-end pe-2 text-muted">{{ emp.dateUnder6MRate ? (emp.dateUnder6MRate | number:'1.2-2') + '%' : '—' }}</td>
-                    <td class="text-end border-start pe-2 text-muted">{{ emp.dateUnder12MValue ? formatMoneyNum(emp.dateUnder12MValue) : '—' }}</td>
-                    <td class="text-end pe-2 text-muted">{{ emp.dateUnder12MRate ? (emp.dateUnder12MRate | number:'1.2-2') + '%' : '—' }}</td>
-                    <td class="text-center border-start text-muted">{{ emp.skuLap ?? '—' }}</td>
-                    <td class="text-center text-muted">{{ emp.skuLapCoTon ?? '—' }}</td>
-                    <td class="text-center text-muted">{{ emp.skuLapHetHang ?? '—' }}</td>
-                    <td class="text-center border-start text-muted">{{ emp.skuKey ?? '—' }}</td>
-                    <td class="text-center text-muted">{{ emp.skuKeyCoTon ?? '—' }}</td>
-                    <td class="text-center text-muted">{{ emp.skuKeyHetHang ?? '—' }}</td>
-                    <td class="text-end pe-3 border-start text-muted">{{ emp.revenue ? formatMoneyNum(emp.revenue) : '—' }}</td>
-                  </tr>
-                }
-              }
             }
 
             @if (filteredRows.length === 0 && !isLoading) {
               <tr>
-                <td colspan="15" class="text-center py-5 text-muted">
+                <td colspan="9" class="text-center py-5 text-muted">
                   <i class="ti ti-inbox fs-1 mb-2 d-block"></i>
                   Không có dữ liệu nhà thuốc phù hợp với bộ lọc hiện tại.
                 </td>
@@ -279,7 +173,7 @@
 
             @if (isLoading) {
               <tr *ngFor="let _ of [1,2,3,4]">
-                <td colspan="15" class="py-2">
+                <td colspan="9" class="py-2">
                   <div class="placeholder-glow">
                     <span class="placeholder col-12" style="height: 24px; border-radius: 4px;"></span>
                   </div>
@@ -288,39 +182,29 @@
             }
           </tbody>
 
-          <!-- TFOOT HÀNG TỔNG (Footer theo đúng ảnh mẫu) -->
+          <!-- TFOOT HÀNG TỔNG -->
           <tfoot class="sticky-bottom" style="z-index: 10; background-color: #f1f5f9; border-top: 2px solid #cbd5e1;">
             <tr style="font-size: 12.5px; font-weight: 700; color: #1e293b;">
               <!-- Tỉnh: TỔNG -->
               <td class="text-start ps-3 fw-bold text-dark">TỔNG</td>
-              <!-- Mã NT: 16 NT -->
-              <td class="text-start fw-bold text-primary">{{ totalSummary.shopsCount }} NT</td>
-              <!-- Mã Nhân Viên: 55 nhân sự -->
-              <td class="text-center fw-bold text-dark">{{ totalSummary.employeesCount }} nhân sự</td>
-              <!-- Tên Nhân Viên: — -->
-              <td class="text-center text-muted">—</td>
+              <!-- Mã NT: X NT -->
+              <td class="text-start ps-2 fw-bold text-primary">{{ totalSummary.shopsCount }} NT</td>
+
+              <!-- Date <= 3T -->
+              <td class="text-end border-start pe-2 text-dark fw-bold">{{ formatMoneyNum(totalSummary.dateUnder3MValue) }}</td>
+              <td class="text-end pe-2 text-danger fw-bold">{{ totalSummary.dateUnder3MRate | number:'1.2-2' }}%</td>
 
               <!-- Date <= 6T -->
-              <td class="text-end border-start pe-2 text-dark">{{ formatMoneyNum(totalSummary.dateUnder6MValue) }}</td>
+              <td class="text-end border-start pe-2 text-dark fw-bold">{{ formatMoneyNum(totalSummary.dateUnder6MValue) }}</td>
               <td class="text-end pe-2 text-success fw-bold">{{ totalSummary.dateUnder6MRate | number:'1.2-2' }}%</td>
 
               <!-- Date <= 12T -->
-              <td class="text-end border-start pe-2 text-dark">{{ formatMoneyNum(totalSummary.dateUnder12MValue) }}</td>
+              <td class="text-end border-start pe-2 text-dark fw-bold">{{ formatMoneyNum(totalSummary.dateUnder12MValue) }}</td>
               <td class="text-end pe-2 text-danger fw-bold">{{ totalSummary.dateUnder12MRate | number:'1.2-2' }}%</td>
 
-              <!-- Hàng Lặp -->
-              <td class="text-center border-start text-dark">{{ totalSummary.skuLap | number:'1.0-0' }}</td>
-              <td class="text-center text-secondary">{{ totalSummary.skuLapCoTon | number:'1.0-0' }}</td>
-              <td class="text-center text-danger fw-bold">{{ totalSummary.skuLapHetHang | number:'1.0-0' }}</td>
-
-              <!-- Hàng Key -->
-              <td class="text-center border-start text-dark">{{ totalSummary.skuKey | number:'1.0-0' }}</td>
-              <td class="text-center text-secondary">{{ totalSummary.skuKeyCoTon | number:'1.0-0' }}</td>
-              <td class="text-center text-danger fw-bold">{{ totalSummary.skuKeyHetHang | number:'1.0-0' }}</td>
-
-              <!-- Doanh số Hàng Lập -->
-              <td class="text-end pe-3 border-start text-dark fw-bold fs-4" style="font-size: 13.5px !important;">
-                {{ formatMoneyNum(totalSummary.revenue) }}
+              <!-- Tổng Tồn Kho -->
+              <td class="text-end pe-3 border-start fw-bold text-primary fs-4" style="font-size: 13.5px !important;">
+                {{ formatMoneyNum(totalSummary.totalStockValue) }} ₫
               </td>
             </tr>
           </tfoot>

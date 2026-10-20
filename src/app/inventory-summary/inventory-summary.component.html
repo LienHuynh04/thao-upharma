@@ -99,94 +99,14 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════
-         PHẦN 1: KPI CARDS — Hạn dùng của nhà thuốc đang chọn
+         PHẦN 1: WIDGET 6 THẺ KPI TỒN KHO THEO HẠN DÙNG (Tải siêu tốc ~0ms)
          ══════════════════════════════════════════════════════════ -->
-    <div class="row row-deck row-cards mb-3" aria-label="Thống kê hạn dùng">
-      <!-- Tất cả -->
-      <div class="col-6 col-sm-4 col-lg-2">
-        <div class="card h-100 expiry-kpi-card"
-             [class.is-active]="activeExpiryFilter === 'all'"
-             (click)="setExpiryFilter('all')" style="cursor:pointer;">
-          <div class="card-status-start bg-primary"></div>
-          <div class="card-body">
-            <div class="text-secondary font-weight-medium">Tất cả</div>
-            <div class="h2 mt-2 mb-1">{{ activeShopSummary?.totalProducts ?? 0 }}</div>
-            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.totalValue ?? 0) }} VNĐ</small></div>
-            <div class="text-secondary"><small class="expiry-rate">100,00%</small></div>
-          </div>
-        </div>
-      </div>
-      <!-- Hết hạn -->
-      <div class="col-6 col-sm-4 col-lg-2">
-        <div class="card h-100 expiry-kpi-card"
-             [class.is-active]="activeExpiryFilter === 'expired'"
-             (click)="setExpiryFilter('expired')" style="cursor:pointer;">
-          <div class="card-status-start bg-danger"></div>
-          <div class="card-body">
-            <div class="text-secondary font-weight-medium">Hết hạn</div>
-            <div class="h2 mt-2 mb-1 text-danger">{{ activeShopSummary?.expiredCount ?? 0 }}</div>
-            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.expiredValue ?? 0) }} VNĐ</small></div>
-            <div class="text-secondary"><small class="expiry-rate">{{ activeShopSummary?.expiredRate ?? '0,00' }}%</small></div>
-          </div>
-        </div>
-      </div>
-      <!-- 3 Tháng -->
-      <div class="col-6 col-sm-4 col-lg-2">
-        <div class="card h-100 expiry-kpi-card"
-             [class.is-active]="activeExpiryFilter === 'danger'"
-             (click)="setExpiryFilter('danger')" style="cursor:pointer;">
-          <div class="card-status-start bg-danger"></div>
-          <div class="card-body">
-            <div class="text-secondary font-weight-medium">3 Tháng</div>
-            <div class="h2 mt-2 mb-1 text-danger">{{ activeShopSummary?.dangerCount ?? 0 }}</div>
-            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.dangerValue ?? 0) }} VNĐ</small></div>
-            <div class="text-secondary"><small class="expiry-rate">{{ activeShopSummary?.dangerRate ?? '0,00' }}%</small></div>
-          </div>
-        </div>
-      </div>
-      <!-- 6 Tháng -->
-      <div class="col-6 col-sm-4 col-lg-2">
-        <div class="card h-100 expiry-kpi-card"
-             [class.is-active]="activeExpiryFilter === 'warning'"
-             (click)="setExpiryFilter('warning')" style="cursor:pointer;">
-          <div class="card-status-start bg-warning"></div>
-          <div class="card-body">
-            <div class="text-secondary font-weight-medium">6 Tháng</div>
-            <div class="h2 mt-2 mb-1 text-warning">{{ activeShopSummary?.warningCount ?? 0 }}</div>
-            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.warningValue ?? 0) }} VNĐ</small></div>
-            <div class="text-secondary"><small class="expiry-rate">{{ activeShopSummary?.warningRate ?? '0,00' }}%</small></div>
-          </div>
-        </div>
-      </div>
-      <!-- 1 Năm -->
-      <div class="col-6 col-sm-4 col-lg-2">
-        <div class="card h-100 expiry-kpi-card"
-             [class.is-active]="activeExpiryFilter === 'safe'"
-             (click)="setExpiryFilter('safe')" style="cursor:pointer;">
-          <div class="card-status-start bg-success"></div>
-          <div class="card-body">
-            <div class="text-secondary font-weight-medium">1 Năm</div>
-            <div class="h2 mt-2 mb-1 text-success">{{ activeShopSummary?.safeCount ?? 0 }}</div>
-            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.safeValue ?? 0) }} VNĐ</small></div>
-            <div class="text-secondary"><small class="expiry-rate">{{ activeShopSummary?.safeRate ?? '0,00' }}%</small></div>
-          </div>
-        </div>
-      </div>
-      <!-- Hàng bình thường -->
-      <div class="col-6 col-sm-4 col-lg-2">
-        <div class="card h-100 expiry-kpi-card"
-             [class.is-active]="activeExpiryFilter === 'normal'"
-             (click)="setExpiryFilter('normal')" style="cursor:pointer;">
-          <div class="card-status-start bg-info"></div>
-          <div class="card-body">
-            <div class="text-secondary font-weight-medium">Hàng bình thường</div>
-            <div class="h2 mt-2 mb-1">{{ activeShopSummary?.normalCount ?? 0 }}</div>
-            <div class="text-secondary mb-1"><small>{{ formatMoney(activeShopSummary?.normalValue ?? 0) }} VNĐ</small></div>
-            <div class="text-secondary"><small class="expiry-rate">{{ activeShopSummary?.normalRate ?? '0,00' }}%</small></div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <app-inventory-kpi-cards
+      [shopCode]="activeShopCode"
+      [selectedId]="activeExpiryFilter"
+      (cardSelected)="setExpiryFilter($event)"
+      (summaryCalculated)="onKpiCalculated($event)"
+    ></app-inventory-kpi-cards>
 
     <!-- ══════════════════════════════════════════════════════════
          PHẦN 2: HHS & TỔNG QUAN TỒN KHO CỦA NHÀ THUỐC ĐANG CHỌN

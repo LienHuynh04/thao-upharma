@@ -17,6 +17,10 @@ import {
 } from "../inventory-utils";
 import { RawRecord, ShopInfo, ShopPlanApiItem, UpharmaService } from "../upharma.service";
 import { environment } from "../../environments/environment";
+import {
+  InventoryKpiCardsComponent,
+  KpiSummaryMap,
+} from "../shared/components/inventory-kpi-cards/inventory-kpi-cards.component";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -66,7 +70,7 @@ interface SyncLog {
 @Component({
   selector: "app-inventory-summary",
   standalone: true,
-  imports: [CommonModule, FormsModule, DecimalPipe],
+  imports: [CommonModule, FormsModule, DecimalPipe, InventoryKpiCardsComponent],
   templateUrl: "./inventory-summary.component.html",
 })
 export class InventorySummaryComponent implements OnInit {
@@ -149,19 +153,48 @@ export class InventorySummaryComponent implements OnInit {
     this.cdr.detectChanges();
   }
 
+  onKpiCalculated(kpi: KpiSummaryMap): void {
+    const shop = this.shopList.find((s) => s.ShopCode === this.activeShopCode);
+    const shopName = shop?.ShopName || this.activeShopCode;
+
+    const updated: ShopInventorySummary = {
+      shopCode: this.activeShopCode,
+      shopName,
+      totalProducts: kpi.all.count,
+      totalValue: kpi.all.value,
+      expiredCount: kpi.expired.count,
+      expiredValue: kpi.expired.value,
+      expiredRate: kpi.expired.percentText.replace("%", "").trim(),
+      dangerCount: kpi.danger.count,
+      dangerValue: kpi.danger.value,
+      dangerRate: kpi.danger.percentText.replace("%", "").trim(),
+      warningCount: kpi.warning.count,
+      warningValue: kpi.warning.value,
+      warningRate: kpi.warning.percentText.replace("%", "").trim(),
+      safeCount: kpi.safe.count,
+      safeValue: kpi.safe.value,
+      safeRate: kpi.safe.percentText.replace("%", "").trim(),
+      normalCount: kpi.normal.count,
+      normalValue: kpi.normal.value,
+      normalRate: kpi.normal.percentText.replace("%", "").trim(),
+    };
+
+    const idx = this.shopSummaries.findIndex((s) => s.shopCode === this.activeShopCode);
+    if (idx >= 0) {
+      this.shopSummaries[idx] = updated;
+    } else {
+      this.shopSummaries.push(updated);
+    }
+    this.cdr.detectChanges();
+  }
+
   async onShopChange(shopCode: string): Promise<void> {
     if (!shopCode) return;
     this.activeShopCode = shopCode;
     this.cdr.detectChanges();
 
-    // Kiểm tra xem nhà thuốc này đã có data chưa, nếu chưa có data thì tự động fetch bổ sung
-    const summary = this.shopSummaries.find((s) => s.shopCode === shopCode);
-    const hhs = this.hhsSummaries.find((h) => h.shopCode === shopCode);
-
-    if (!summary || summary.totalProducts === 0 || !hhs || (hhs.amount === 0 && hhs.amountR === 0)) {
-      await this.fetchSingleShopData(shopCode);
-    }
-
+    // Tải HHS cho shop này ngay lập tức nếu chưa có hoặc cập nhật
+    await this.fetchSingleShopHhs(shopCode);
     this.cdr.detectChanges();
   }
 
@@ -368,23 +401,54 @@ export class InventorySummaryComponent implements OnInit {
       const monthStr = String(this.selectedMonth).padStart(2, "0");
       const targetMonth = `${year}-${monthStr}`;
 
-      const res = await this.upharma.loadShopPlanByTime({
-        TimeStart: `${year}-01-01 00:00:00`,
-        TimeEnd: `${year}-12-31 23:59:59`,
-        ShopCode: shopCode,
-        Token: session.Token,
-        uPharmaID: session.UserInfo.uPharmaID,
-      });
+      let amount = 0;
+      let amountR = 0;
+      let hhs = 0;
+      let hhsR = 0;
 
-      const items: ShopPlanApiItem[] = (res.ShopPlanLst || []).filter((item) => {
-        const m = String(item.Month || item.TimeMonth || "");
-        return m.includes("-") ? m === targetMonth : Number(m) === this.selectedMonth;
-      });
+      try {
+        const res = await this.upharma.loadShopPlanByTime({
+          TimeStart: `${year}-01-01 00:00:00`,
+          TimeEnd: `${year}-12-31 23:59:59`,
+          ShopCode: shopCode,
+          Token: session.Token,
+          uPharmaID: session.UserInfo.uPharmaID,
+        });
 
-      const amount = items.reduce((s, i) => s + (Number(i.Amount) || 0), 0);
-      const amountR = items.reduce((s, i) => s + (Number(i.AmountR) || 0), 0);
-      const hhs = items.reduce((s, i) => s + (Number(i.PointSales01) || 0), 0);
-      const hhsR = items.reduce((s, i) => s + (Number(i.PointSales01R) || 0), 0);
+        const items: ShopPlanApiItem[] = (res.ShopPlanLst || []).filter((item) => {
+          const m = String(item.Month || item.TimeMonth || "");
+          return m.includes("-") ? m === targetMonth : Number(m) === this.selectedMonth;
+        });
+
+        amount = items.reduce((s, i) => s + (Number(i.Amount) || 0), 0);
+        amountR = items.reduce((s, i) => s + (Number(i.AmountR) || 0), 0);
+        hhs = items.reduce((s, i) => s + (Number(i.PointSales01) || 0), 0);
+        hhsR = items.reduce((s, i) => s + (Number(i.PointSales01R) || 0), 0);
+      } catch (err) {
+        console.warn(`[HHS] loadShopPlanByTime error cho ${shopCode}:`, err);
+      }
+
+      // Nếu cấp nhà thuốc trống, tính gộp từ toàn bộ nhân viên:
+      if (amount === 0 && amountR === 0 && hhs === 0 && hhsR === 0) {
+        try {
+          const empRes = await this.upharma.callEndpoint<any>("/EmployeePlan/GetEmployeePlanLst", {
+            Month: this.selectedMonth,
+            Year: this.selectedYear,
+            ShopCode: shopCode,
+            Token: session.Token,
+            uPharmaID: session.UserInfo.uPharmaID,
+          });
+          const empList: any[] = this.extractArray(empRes);
+          if (empList.length > 0) {
+            amount = empList.reduce((s, i) => s + (Number(i.Amount) || 0), 0);
+            amountR = empList.reduce((s, i) => s + (Number(i.AmountR) || 0), 0);
+            hhs = empList.reduce((s, i) => s + (Number(i.PointRatio || i.PointSales01) || 0), 0);
+            hhsR = empList.reduce((s, i) => s + (Number(i.PointRatioR || i.PointSales01R) || 0), 0);
+          }
+        } catch (empErr) {
+          console.warn(`[HHS] Fallback EmployeePlanLst error cho ${shopCode}:`, empErr);
+        }
+      }
 
       const updated: ShopHhsSummary = {
         shopCode,
@@ -406,6 +470,7 @@ export class InventorySummaryComponent implements OnInit {
       } else {
         this.hhsSummaries.push(updated);
       }
+      this.cdr.detectChanges();
     } catch (err) {
       console.warn(`[HHS] Lỗi tải HHS riêng cho ${shopCode}:`, err);
     }
@@ -574,33 +639,68 @@ export class InventorySummaryComponent implements OnInit {
       const results = await Promise.all(
         shops.map(async (shop) => {
           try {
-            const res = await this.upharma.loadShopPlanByTime({
-              TimeStart: `${year}-01-01 00:00:00`,
-              TimeEnd: `${year}-12-31 23:59:59`,
-              ShopCode: shop.ShopCode,
-              Token: session.Token,
-              uPharmaID: session.UserInfo.uPharmaID,
-            });
+            let items: ShopPlanApiItem[] = [];
+            try {
+              const res = await this.upharma.loadShopPlanByTime({
+                TimeStart: `${year}-01-01 00:00:00`,
+                TimeEnd: `${year}-12-31 23:59:59`,
+                ShopCode: shop.ShopCode,
+                Token: session.Token,
+                uPharmaID: session.UserInfo.uPharmaID,
+              });
 
-            const items: ShopPlanApiItem[] = (res.ShopPlanLst || []).filter((item) => {
-              const m = String(item.Month || item.TimeMonth || "");
-              return m.includes("-") ? m === targetMonth : Number(m) === this.selectedMonth;
-            });
+              items = (res.ShopPlanLst || []).filter((item) => {
+                const m = String(item.Month || item.TimeMonth || "");
+                return m.includes("-") ? m === targetMonth : Number(m) === this.selectedMonth;
+              });
+            } catch {}
 
-            return { shop, items };
+            let amount = items.reduce((s, i) => s + (Number(i.Amount) || 0), 0);
+            let amountR = items.reduce((s, i) => s + (Number(i.AmountR) || 0), 0);
+            let hhs = items.reduce((s, i) => s + (Number(i.PointSales01) || 0), 0);
+            let hhsR = items.reduce((s, i) => s + (Number(i.PointSales01R) || 0), 0);
+
+            // Fallback nếu cấp nhà thuốc trống:
+            if (amount === 0 && amountR === 0 && hhs === 0 && hhsR === 0) {
+              try {
+                const empRes = await this.upharma.callEndpoint<any>("/EmployeePlan/GetEmployeePlanLst", {
+                  Month: this.selectedMonth,
+                  Year: this.selectedYear,
+                  ShopCode: shop.ShopCode,
+                  Token: session.Token,
+                  uPharmaID: session.UserInfo.uPharmaID,
+                });
+                const empList: any[] = this.extractArray(empRes);
+                if (empList.length > 0) {
+                  amount = empList.reduce((s, i) => s + (Number(i.Amount) || 0), 0);
+                  amountR = empList.reduce((s, i) => s + (Number(i.AmountR) || 0), 0);
+                  hhs = empList.reduce((s, i) => s + (Number(i.PointRatio || i.PointSales01) || 0), 0);
+                  hhsR = empList.reduce((s, i) => s + (Number(i.PointRatioR || i.PointSales01R) || 0), 0);
+                }
+              } catch {}
+            }
+
+            return {
+              shop,
+              amount,
+              amountR,
+              hhs,
+              hhsR,
+            };
           } catch {
-            return { shop, items: [] };
+            return {
+              shop,
+              amount: 0,
+              amountR: 0,
+              hhs: 0,
+              hhsR: 0,
+            };
           }
         }),
       );
 
       const summaries: ShopHhsSummary[] = [];
-      for (const { shop, items } of results) {
-        const amount = items.reduce((s, i) => s + (Number(i.Amount) || 0), 0);
-        const amountR = items.reduce((s, i) => s + (Number(i.AmountR) || 0), 0);
-        const hhs = items.reduce((s, i) => s + (Number(i.PointSales01) || 0), 0);
-        const hhsR = items.reduce((s, i) => s + (Number(i.PointSales01R) || 0), 0);
-
+      for (const { shop, amount, amountR, hhs, hhsR } of results) {
         summaries.push({
           shopCode: shop.ShopCode,
           shopName: shop.ShopName || shop.ShopCode,

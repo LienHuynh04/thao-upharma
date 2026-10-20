@@ -46,7 +46,6 @@ export class InventorySummaryComponent implements OnInit {
 
   // ── Bộ lọc ──────────────────────────────────────────────────────
   selectedPeriod = "";
-  availablePeriods: { value: string; label: string; year: number; month: number }[] = [];
   selectedShopCode: string = "all";
   searchText = "";
 
@@ -104,9 +103,11 @@ export class InventorySummaryComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.setupPeriods();
     const today = new Date();
-    this.todayDisplay = `${today.getDate()}/${today.getMonth() + 1}`;
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1;
+    this.selectedPeriod = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
+    this.todayDisplay = `${today.getDate()}/${currentMonth}`;
 
     this.rawShops = this.upharma.getActiveShops() || [];
 
@@ -114,37 +115,6 @@ export class InventorySummaryComponent implements OnInit {
     this.loadFromCache();
 
     // Tải dữ liệu từ Firebase / tính toán ngầm ở background
-    void this.fetchOverviewData();
-  }
-
-  private setupPeriods(): void {
-    const today = new Date();
-    const currentYear = today.getFullYear();
-    const currentMonth = today.getMonth() + 1;
-
-    const periods: { value: string; label: string; year: number; month: number }[] = [];
-    for (let i = 0; i < 6; i++) {
-      let m = currentMonth - i;
-      let y = currentYear;
-      if (m <= 0) {
-        m += 12;
-        y -= 1;
-      }
-      const mStr = String(m).padStart(2, "0");
-      periods.push({
-        value: `${y}-${mStr}`,
-        label: `${m}/${y}`,
-        year: y,
-        month: m,
-      });
-    }
-
-    this.availablePeriods = periods;
-    this.selectedPeriod = periods[0].value;
-  }
-
-  onPeriodChange(): void {
-    this.loadFromCache();
     void this.fetchOverviewData();
   }
 
@@ -163,7 +133,7 @@ export class InventorySummaryComponent implements OnInit {
 
   // ─── Cache-first (~0ms) ─────────────────────────────────────────
   private loadFromCache(): void {
-    const cacheKey = `upharma_shops_overview_cache_${this.selectedPeriod}`;
+    const cacheKey = `upharma_shops_overview_cache_current`;
     try {
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
@@ -177,7 +147,7 @@ export class InventorySummaryComponent implements OnInit {
   }
 
   private saveToCache(rows: ShopOverviewItem[]): void {
-    const cacheKey = `upharma_shops_overview_cache_${this.selectedPeriod}`;
+    const cacheKey = `upharma_shops_overview_cache_current`;
     try {
       localStorage.setItem(cacheKey, JSON.stringify(rows));
     } catch (e) {}

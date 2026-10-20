@@ -30,7 +30,7 @@ const FIREBASE_DATABASE_URL = (
   "https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app"
 ).replace(/\/$/, "");
 
-const EXCLUDED_SHOP_CODES = new Set(["SHOP0018"]);
+const EXCLUDED_SHOP_CODES = new Set([]);
 const INTERVAL_MINUTES = Math.max(1, Number(process.env.CRON_INTERVAL_MINUTES || 30));
 const IS_DAEMON = process.argv.includes('--daemon');
 

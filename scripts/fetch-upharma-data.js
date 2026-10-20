@@ -27,7 +27,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
 const UPHARMA_API_BASE_URL = process.env.UPHARMA_API_BASE_URL || "https://icpc1hn.work/NHATHUOC";
 const UPHARMA_USERNAME = process.env.UPHARMA_USERNAME;
 const UPHARMA_PASSWORD = process.env.UPHARMA_PASSWORD;
-const EXCLUDED_SHOP_CODES = new Set(["SHOP0018"]);
+const EXCLUDED_SHOP_CODES = new Set([]);
 const DATA_DIR = path.join(__dirname, '..', 'src', 'assets', 'data');
 const REQUEST_TIMEOUT_MS = Number(process.env.UPHARMA_REQUEST_TIMEOUT_MS || 120000);
 const SHOP_CONCURRENCY = Math.max(1, Number(process.env.UPHARMA_SHOP_CONCURRENCY || 3));

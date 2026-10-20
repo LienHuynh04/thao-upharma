@@ -23,7 +23,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
 const UPHARMA_API_BASE_URL = process.env.UPHARMA_API_BASE_URL || "https://icpc1hn.work/NHATHUOC";
 const UPHARMA_USERNAME = process.env.UPHARMA_USERNAME;
 const UPHARMA_PASSWORD = process.env.UPHARMA_PASSWORD;
-const EXCLUDED_SHOP_CODES = new Set(["SHOP0018"]);
+const EXCLUDED_SHOP_CODES = new Set([]);
 const DATA_DIR = path.join(__dirname, '..', 'src', 'assets', 'data');
 
 async function requestUpharma(pathname, payload) {

@@ -1,6 +1,6 @@
 <!-- ================================================================
-   TRANG TỒN KHO & HHS — UI giống ton-kho-chi-tiet, per-shop tabs
-   Không có bảng sản phẩm | Có nút đồng bộ → Firebase
+   TRANG TỒN KHO & HHS — UI Select Dropdown gọn gàng cho từng nhà thuốc
+   Không có bảng sản phẩm | Bỏ tab dài | Chuyển đổi shop tức thì
    ================================================================ -->
 
 <!-- ─── Page Header ─────────────────────────────────────────────── -->
@@ -13,7 +13,7 @@
       </div>
       <div class="col-12 col-md-auto ms-md-auto mt-2 mt-md-0 d-print-none">
         <div class="d-flex flex-wrap gap-2 align-items-center">
-          <!-- Tháng/Năm cho HHS -->
+          <!-- Chọn Tháng/Năm cho HHS -->
           <div class="d-inline-flex align-items-center gap-1">
             <span class="text-label-caps">Tháng</span>
             <select class="form-select form-select-sm" [(ngModel)]="selectedMonth"
@@ -28,7 +28,7 @@
               <option *ngFor="let y of years" [ngValue]="y">{{ y }}</option>
             </select>
           </div>
-          <!-- Đồng bộ → Firebase -->
+          <!-- Nút Đồng bộ → Firebase -->
           <button class="btn btn-sm btn-success d-flex align-items-center gap-1"
                   (click)="syncToFirebase()"
                   [disabled]="isSyncing || isInventoryLoading"
@@ -37,7 +37,7 @@
                [class.spin]="isSyncing"></i>
             {{ isSyncing ? syncStatus : 'Đồng bộ → Firebase' }}
           </button>
-          <!-- Tải lại (đọc từ Firebase cache) -->
+          <!-- Nút Tải lại -->
           <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1"
                   (click)="reload()"
                   [disabled]="isInventoryLoading">
@@ -62,7 +62,44 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════
-         PHẦN 1: KPI CARDS — Hạn dùng (giống screenshot)
+         BỘ CHỌN NHÀ THUỐC (Dạng Select dropdown thay cho Tab dài)
+         ══════════════════════════════════════════════════════════ -->
+    <div class="card mb-3 shadow-sm border-0">
+      <div class="card-body py-2 px-3 d-flex align-items-center justify-content-between flex-wrap gap-2" style="background-color: #f8fafc; border: 1px solid var(--upharma-border); border-radius: 8px;">
+        <div class="d-flex align-items-center gap-2 flex-grow-1" style="max-width: 620px;">
+          <span class="avatar avatar-sm bg-primary text-white" style="border-radius: 6px;">
+            <i class="ti ti-building-store" style="font-size: 1.15rem;"></i>
+          </span>
+          <div class="flex-grow-1">
+            <label class="text-label-caps d-block mb-1 text-muted" style="font-size: 10px; font-weight: 700;">Nhà thuốc</label>
+            <select
+              class="form-select form-select-sm fw-bold border-primary text-primary"
+              [ngModel]="activeShopCode"
+              (ngModelChange)="onShopChange($event)"
+              style="font-size: 14px; height: 38px; cursor: pointer; background-color: #ffffff;"
+            >
+              <option *ngFor="let shop of shopList" [value]="shop.ShopCode">
+                {{ shop.ShopCode }} - {{ shop.ShopName }}
+              </option>
+            </select>
+          </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-4 ms-auto text-secondary small py-1">
+          <div>
+            <span class="text-muted d-block" style="font-size: 10.5px;">Tổng giá trị tồn kho:</span>
+            <strong class="text-primary fs-3" style="font-size: 1.1rem !important;">{{ formatMoney(activeShopSummary?.totalValue ?? 0) }} ₫</strong>
+          </div>
+          <div class="border-start ps-3">
+            <span class="text-muted d-block" style="font-size: 10.5px;">Tổng số SKU:</span>
+            <strong class="fs-3 text-dark" style="font-size: 1.1rem !important;">{{ activeShopSummary?.totalProducts ?? 0 }} SP</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════
+         PHẦN 1: KPI CARDS — Hạn dùng của nhà thuốc đang chọn
          ══════════════════════════════════════════════════════════ -->
     <div class="row row-deck row-cards mb-3" aria-label="Thống kê hạn dùng">
       <!-- Tất cả -->
@@ -152,35 +189,7 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════
-         PHẦN 2: SHOP TABS (giống screenshot)
-         ══════════════════════════════════════════════════════════ -->
-    <div class="card mb-3" *ngIf="shopSummaries.length > 0">
-      <div class="card-header p-0">
-        <ul class="nav nav-tabs card-header-tabs nav-fill w-100 m-0">
-          <li class="nav-item">
-            <a href="javascript:void(0)"
-               class="nav-link py-3"
-               [class.active]="activeShopCode === 'ALL'"
-               (click)="setActiveShop('ALL')">
-              <i class="ti ti-layout-grid me-2" style="font-size:1.15rem;"></i>
-              <strong>Tất cả nhà ({{ shopSummaries.length }})</strong>
-            </a>
-          </li>
-          <li class="nav-item" *ngFor="let shop of shopSummaries; trackBy: trackByShop">
-            <a href="javascript:void(0)"
-               class="nav-link py-3"
-               [class.active]="shop.shopCode === activeShopCode"
-               (click)="setActiveShop(shop.shopCode)">
-              <i class="ti ti-building-store me-2" style="font-size:1.15rem;"></i>
-              <strong>{{ shop.shopCode }}</strong>
-            </a>
-          </li>
-        </ul>
-      </div>
-    </div>
-
-    <!-- ══════════════════════════════════════════════════════════
-         PHẦN 3: HHS PER SHOP (cho shop đang active)
+         PHẦN 2: HHS & TỔNG QUAN TỒN KHO CỦA NHÀ THUỐC ĐANG CHỌN
          ══════════════════════════════════════════════════════════ -->
     <div class="row g-3">
       <!-- HHS Card -->
@@ -198,7 +207,7 @@
                   [class.text-warning]="activeHhs && activeHhs.salesPercent >= 80 && activeHhs.salesPercent < 100"
                   [class.bg-danger-lt]="activeHhs && activeHhs.salesPercent < 80"
                   [class.text-danger]="activeHhs && activeHhs.salesPercent < 80"
-                  *ngIf="activeHhs">
+                  *ngIf="activeHhs && (activeHhs.amount > 0 || activeHhs.amountR > 0)">
               {{ activeHhs.salesPercent | number:'1.0-1' }}% DS
             </span>
           </div>
@@ -265,9 +274,9 @@
 
           <!-- HHS empty -->
           <div class="card-body text-center py-5 text-muted"
-               *ngIf="!isHhsLoading && !activeHhs">
+               *ngIf="!isHhsLoading && (!activeHhs || (activeHhs.amount === 0 && activeHhs.amountR === 0))">
             <i class="ti ti-chart-bar-off" style="font-size:2rem;"></i>
-            <div class="mt-2 small">Không có dữ liệu HHS tháng {{ selectedMonth }}/{{ selectedYear }}</div>
+            <div class="mt-2 small">Không có dữ liệu HHS tháng {{ selectedMonth }}/{{ selectedYear }} cho nhà thuốc này</div>
           </div>
         </div>
       </div>

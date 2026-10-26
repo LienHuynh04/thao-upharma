@@ -12,6 +12,7 @@ import {
   inject,
 } from "@angular/core";
 import { environment } from "../../../../environments/environment";
+import { isWarehouseStore, normalizeInventoryRow } from "../../../inventory-utils";
 import { UpharmaService } from "../../../upharma.service";
 
 export type ExpiryBucketId = "all" | "expired" | "danger" | "warning" | "safe" | "normal";
@@ -397,75 +398,29 @@ export class InventoryKpiCardsComponent implements OnInit, OnChanges {
       normal: 0,
     };
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayMs = today.getTime();
-
     // ── DUYỆT 1 VÒNG LẶP DUY NHẤT O(N) ──
     for (let i = 0; i < rawList.length; i++) {
       const item = rawList[i];
       if (!item) continue;
 
       // 1. Lọc loại trừ kho tổng / kho phụ
-      const storeCode = String(item.StoreCode || item.ShopCode || item.BranchCode || "").toUpperCase().trim();
-      const storeName = String(item.StoreName || item.ShopName || item.BranchName || item.__shopName || "").toLowerCase().trim();
-      const storeType = String(item.StoreType || "").toLowerCase().trim();
+      if (isWarehouseStore(item)) continue;
 
-      if (storeType.includes("kho")) continue;
-      if (storeCode === "DN" || storeCode.startsWith("KHO_") || storeCode.startsWith("KHO") || storeCode.startsWith("K_")) continue;
-      if (
-        storeName.startsWith("kho ") ||
-        storeName.startsWith("kho.") ||
-        storeName.startsWith("kho-") ||
-        storeName.includes("kho tổng") ||
-        storeName.includes("kho chi nhánh") ||
-        storeName.includes("kho tong") ||
-        storeName.includes("kho chi nhanh")
-      ) {
-        continue;
-      }
+      // Chuẩn hoá 1 lần bằng inventory-utils — nơi duy nhất map đúng field
+      // thật của API: UnitPrice và ExpirationDate. Map tay bằng Price/GiaBan/
+      // ExpDate như trước sẽ cho giá = 0 và hạn rỗng (mọi SP thành "bình thường").
+      const normalized = normalizeInventoryRow(item, i);
 
       // 2. Lọc Voucher
-      const pCode = String(item.ProductCode || item.ProductID || item.MaSP || item.ItemCode || item.Code || "").toUpperCase().trim();
-      const pName = String(item.ProductName || item.Product_Name || item.TenSP || item.Name || "").toUpperCase().trim();
+      const pCode = normalized.productCode.toUpperCase().trim();
+      const pName = normalized.productName.toUpperCase().trim();
       if (!pCode || pCode.includes("VOUCHER") || pName.includes("VOUCHER") || pCode.startsWith("VC")) {
         continue;
       }
 
-      // 3. Số lượng & Giá bán & Giá trị tồn
-      const qty = Number(item.Quantity ?? item.Qty ?? item.TonKho ?? item.SL ?? 0) || 0;
-      const price = Number(item.Price ?? item.GiaBan ?? item.RetailPrice ?? item.Gia ?? 0) || 0;
-      const stockVal = price * qty;
-
-      // 4. Tính số ngày còn lại đến hạn (diffDays)
-      const expRaw = item.ExpDate ?? item.ExpireDate ?? item.HanDung ?? item.HSD ?? "";
-      let diffDays: number | null = null;
-
-      if (expRaw) {
-        let expDate: Date | null = null;
-        if (expRaw instanceof Date) {
-          expDate = expRaw;
-        } else {
-          const text = String(expRaw).trim();
-          const aspNet = text.match(/\/Date\((\d+)\)\//);
-          if (aspNet) {
-            expDate = new Date(Number(aspNet[1]));
-          } else {
-            const ddmmyyyy = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-            if (ddmmyyyy) {
-              expDate = new Date(Number(ddmmyyyy[3]), Number(ddmmyyyy[2]) - 1, Number(ddmmyyyy[1]));
-            } else {
-              const parsed = new Date(text.replace(" ", "T"));
-              if (!Number.isNaN(parsed.getTime())) expDate = parsed;
-            }
-          }
-        }
-
-        if (expDate) {
-          expDate.setHours(0, 0, 0, 0);
-          diffDays = Math.floor((expDate.getTime() - todayMs) / 86400000);
-        }
-      }
+      // 3. Giá trị tồn & số ngày còn lại đến hạn
+      const stockVal = normalized.stockValue;
+      const diffDays = normalized.expiryDaysRemaining;
 
       // Cập nhật nhóm "Tất cả"
       sets.all.add(pCode);

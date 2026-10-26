@@ -3,7 +3,7 @@ import { ChangeDetectorRef, Component, OnInit, inject } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { environment } from "../../environments/environment";
 import { RawRecord, ShopInfo, UpharmaService } from "../upharma.service";
-import { isWarehouseStore } from "../inventory-utils";
+import { isWarehouseStore, normalizeInventoryRow } from "../inventory-utils";
 
 export interface ShopOverviewItem {
   province: string;
@@ -132,14 +132,20 @@ export class InventorySummaryComponent implements OnInit {
   }
 
   // ─── Cache-first (~0ms) ─────────────────────────────────────────
+  // Cache v2 lưu kèm mốc thời gian để nhận biết số cũ. Cache chỉ để hiển thị
+  // tức thời; fetchOverviewData() luôn chạy sau đó và thay bằng số mới nhất.
+  private static readonly CACHE_KEY = "upharma_shops_overview_cache_v2";
+  private static readonly CACHE_TTL_MS = 35 * 60 * 1000; // ~1 chu kỳ sync CI (30 phút) + đệm
+
   private loadFromCache(): void {
-    const cacheKey = `upharma_shops_overview_cache_current`;
     try {
-      const cached = localStorage.getItem(cacheKey);
+      const cached = localStorage.getItem(InventorySummaryComponent.CACHE_KEY);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          this.shopRows = parsed;
+        const rows = parsed?.rows;
+        const savedAt = Number(parsed?.savedAt) || 0;
+        if (Array.isArray(rows) && rows.length > 0 && Date.now() - savedAt <= InventorySummaryComponent.CACHE_TTL_MS) {
+          this.shopRows = rows;
           this.cdr.detectChanges();
         }
       }
@@ -147,9 +153,11 @@ export class InventorySummaryComponent implements OnInit {
   }
 
   private saveToCache(rows: ShopOverviewItem[]): void {
-    const cacheKey = `upharma_shops_overview_cache_current`;
     try {
-      localStorage.setItem(cacheKey, JSON.stringify(rows));
+      localStorage.setItem(
+        InventorySummaryComponent.CACHE_KEY,
+        JSON.stringify({ savedAt: Date.now(), rows }),
+      );
     } catch (e) {}
   }
 
@@ -163,8 +171,15 @@ export class InventorySummaryComponent implements OnInit {
     }
     if (typeof json === "object" && !Array.isArray(json)) {
       const dataObj = json.data && typeof json.data === "object" && !Array.isArray(json.data) ? json.data : json;
+      // Node upharma_data/inventory là dữ liệu THÔ gộp dạng { SHOPxxxx: [rows] },
+      // không phải summary — không đọc .Total trên mảng (sẽ ra 0), trả null để
+      // chuyển sang nguồn tiếp theo / tự tính từ dữ liệu thô.
+      const dataValues = Object.values(dataObj);
+      if (dataValues.length > 0 && dataValues.every((v) => Array.isArray(v))) {
+        return null;
+      }
       const keys = Object.keys(dataObj).filter(
-        (k) => k.startsWith("SHOP") || (typeof dataObj[k] === "object" && dataObj[k] !== null),
+        (k) => !Array.isArray(dataObj[k]) && (k.startsWith("SHOP") || (typeof dataObj[k] === "object" && dataObj[k] !== null)),
       );
       if (keys.length > 0) {
         return keys.map((k) => {
@@ -198,6 +213,28 @@ export class InventorySummaryComponent implements OnInit {
     return null;
   }
 
+  private summaryToOverviewItem(json: any, fallbackShop: ShopInfo): ShopOverviewItem | null {
+    if (!json || (json.Date_3th === undefined && json.Total === undefined && json.totalStockValue === undefined)) {
+      return null;
+    }
+    const total = Number(json.Total ?? json.totalStockValue ?? 0);
+    const d3 = Number(json.Date_3th ?? json.dateUnder3MValue ?? 0);
+    const d6 = Number(json.Date_6th ?? json.dateUnder6MValue ?? 0);
+    const d12 = Number(json.Date_12th ?? json.dateUnder12MValue ?? 0);
+    return {
+      shopCode: json.ShopCode || json.shopCode || fallbackShop.ShopCode,
+      shopName: json.ShopName || json.shopName || fallbackShop.ShopName,
+      province: json.Province || json.province || this.extractProvince(fallbackShop.ShopName),
+      totalStockValue: total,
+      dateUnder3MValue: d3,
+      dateUnder3MRate: Number(json.Date_3th_Rate ?? json.dateUnder3MRate ?? (total > 0 ? (d3 / total) * 100 : 0)),
+      dateUnder6MValue: d6,
+      dateUnder6MRate: Number(json.Date_6th_Rate ?? json.dateUnder6MRate ?? (total > 0 ? (d6 / total) * 100 : 0)),
+      dateUnder12MValue: d12,
+      dateUnder12MRate: Number(json.Date_12th_Rate ?? json.dateUnder12MRate ?? (total > 0 ? (d12 / total) * 100 : 0)),
+    };
+  }
+
   // ─── Tải dữ liệu từ Firebase RTDB hoặc Tính toán ────────────────
   async fetchOverviewData(forceRefresh = false): Promise<void> {
     const firebaseDbUrl = (environment as any).firebaseDbUrl as string | undefined;
@@ -216,7 +253,7 @@ export class InventorySummaryComponent implements OnInit {
           if (res.ok) {
             const json = await res.json();
             const items = this.parseInventoryResponse(json);
-            if (items && items.length > 0) {
+            if (items && items.length > 0 && items.some((i) => i.totalStockValue > 0)) {
               this.shopRows = items;
               this.saveToCache(items);
               this.cdr.detectChanges();
@@ -235,7 +272,7 @@ export class InventorySummaryComponent implements OnInit {
       if (res.ok) {
         const json = await res.json();
         const items = this.parseInventoryResponse(json);
-        if (items && items.length > 0) {
+        if (items && items.length > 0 && items.some((i) => i.totalStockValue > 0)) {
           this.shopRows = items;
           this.saveToCache(items);
           this.cdr.detectChanges();
@@ -267,27 +304,25 @@ export class InventorySummaryComponent implements OnInit {
 
         // A. Tải tồn kho từ Firebase
         if (normalizedFirebase) {
+          // A0. Node summary riêng của shop (pipeline sync ghi mới mỗi 30 phút)
+          try {
+            const res = await fetch(`${normalizedFirebase}/shops/${shop.ShopCode}/upharma_data/inventory_summary.json`);
+            if (res.ok) {
+              const item = this.summaryToOverviewItem(await res.json(), shop);
+              if (item) {
+                results.push(item);
+                continue;
+              }
+            }
+          } catch {}
+
           try {
             const res = await fetch(`${normalizedFirebase}/shops/${shop.ShopCode}/upharma_data/inventory.json`);
             if (res.ok) {
               const json = await res.json();
-              if (json && (json.Date_3th !== undefined || json.Total !== undefined || json.totalStockValue !== undefined)) {
-                const total = Number(json.Total ?? json.totalStockValue ?? 0);
-                const d3 = Number(json.Date_3th ?? json.dateUnder3MValue ?? 0);
-                const d6 = Number(json.Date_6th ?? json.dateUnder6MValue ?? 0);
-                const d12 = Number(json.Date_12th ?? json.dateUnder12MValue ?? 0);
-                results.push({
-                  shopCode: json.ShopCode || json.shopCode || shop.ShopCode,
-                  shopName: json.ShopName || json.shopName || shop.ShopName,
-                  province: json.Province || json.province || this.extractProvince(shop.ShopName),
-                  totalStockValue: total,
-                  dateUnder3MValue: d3,
-                  dateUnder3MRate: Number(json.Date_3th_Rate ?? json.dateUnder3MRate ?? (total > 0 ? (d3 / total) * 100 : 0)),
-                  dateUnder6MValue: d6,
-                  dateUnder6MRate: Number(json.Date_6th_Rate ?? json.dateUnder6MRate ?? (total > 0 ? (d6 / total) * 100 : 0)),
-                  dateUnder12MValue: d12,
-                  dateUnder12MRate: Number(json.Date_12th_Rate ?? json.dateUnder12MRate ?? (total > 0 ? (d12 / total) * 100 : 0)),
-                });
+              const summaryItem = this.summaryToOverviewItem(json, shop);
+              if (summaryItem) {
+                results.push(summaryItem);
                 continue;
               }
               if (Array.isArray(json)) inventoryRows = json;
@@ -311,62 +346,40 @@ export class InventorySummaryComponent implements OnInit {
         }
 
         // C. Phân loại hạn dùng & Tính giá trị
+        // Dùng normalizeInventoryRow (inventory-utils) — nơi duy nhất map đúng
+        // field thật của API: UnitPrice và ExpirationDate. Map tay bằng
+        // Price/GiaBan/ExpDate như trước sẽ cho giá = 0 và không có hạn dùng.
+        // Semantics khớp phần mềm desktop: hết hạn tách riêng (không tính vào
+        // 3 tháng), dưới 3 tháng = còn hạn 0–90 ngày, dưới 6 tháng = 91–180
+        // ngày, dưới 12 tháng = cộng dồn ≤360 ngày.
         let totalStockValue = 0;
         let dateUnder3MValue = 0;
         let dateUnder6MValue = 0;
         let dateUnder12MValue = 0;
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayMs = today.getTime();
 
         for (let i = 0; i < inventoryRows.length; i++) {
           const item = inventoryRows[i];
           if (!item) continue;
           if (isWarehouseStore(item)) continue;
 
-          const pCode = String(item["ProductCode"] || item["ProductID"] || item["MaSP"] || "").toUpperCase().trim();
-          const pName = String(item["ProductName"] || item["Product_Name"] || item["TenSP"] || "").toUpperCase().trim();
+          const normalized = normalizeInventoryRow(item, i);
+          const pCode = normalized.productCode.toUpperCase().trim();
+          const pName = normalized.productName.toUpperCase().trim();
           if (pCode.includes("VOUCHER") || pName.includes("VOUCHER") || pCode.startsWith("VC")) continue;
 
-          const qty = Number(item["Quantity"] ?? item["Qty"] ?? item["TonKho"] ?? item["SL"] ?? 0) || 0;
-          const price = Number(item["Price"] ?? item["GiaBan"] ?? item["RetailPrice"] ?? 0) || 0;
-          const stockVal = price * qty;
-
+          const stockVal = normalized.stockValue;
           totalStockValue += stockVal;
 
-          // HSD
-          const expRaw = item["ExpDate"] ?? item["ExpireDate"] ?? item["HanDung"] ?? item["HSD"] ?? "";
-          if (expRaw) {
-            let expDate: Date | null = null;
-            if (expRaw instanceof Date) expDate = expRaw;
-            else {
-              const text = String(expRaw).trim();
-              const aspNet = text.match(/\/Date\((\d+)\)\//);
-              if (aspNet) expDate = new Date(Number(aspNet[1]));
-              else {
-                const ddmmyyyy = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-                if (ddmmyyyy) expDate = new Date(Number(ddmmyyyy[3]), Number(ddmmyyyy[2]) - 1, Number(ddmmyyyy[1]));
-                else {
-                  const parsed = new Date(text.replace(" ", "T"));
-                  if (!Number.isNaN(parsed.getTime())) expDate = parsed;
-                }
-              }
-            }
-
-            if (expDate) {
-              expDate.setHours(0, 0, 0, 0);
-              const diffDays = Math.floor((expDate.getTime() - todayMs) / 86400000);
-              if (diffDays <= 90) {
-                dateUnder3MValue += stockVal;
-              }
-              if (diffDays <= 180) {
-                dateUnder6MValue += stockVal;
-              }
-              if (diffDays <= 360) {
-                dateUnder12MValue += stockVal;
-              }
-            }
+          const diffDays = normalized.expiryDaysRemaining;
+          if (diffDays === null) continue;
+          if (diffDays >= 0 && diffDays <= 90) {
+            dateUnder3MValue += stockVal;
+          }
+          if (diffDays > 90 && diffDays <= 180) {
+            dateUnder6MValue += stockVal;
+          }
+          if (diffDays <= 360) {
+            dateUnder12MValue += stockVal;
           }
         }
 

@@ -20,6 +20,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { computeShopInventorySummary } = require('./inventory-summary-utils');
 
 // ── 1. Cấu hình & Biến môi trường ───────────────────────────────────────────
 const UPHARMA_API_BASE_URL = process.env.UPHARMA_API_BASE_URL || "https://icpc1hn.work/NHATHUOC";
@@ -99,75 +100,8 @@ async function writeToFirebase(rtdbPath, data) {
   }
 }
 
-// ── 3. Helper logic chuẩn hóa dữ liệu tồn kho ──────────────────────────────
-function isWarehouseStore(item) {
-  if (!item) return false;
-  const code = String(item.StoreCode || item.ShopCode || item.BranchCode || "").toUpperCase().trim();
-  const name = String(item.StoreName || item.ShopName || item.BranchName || item.__shopName || "").toLowerCase().trim();
-  const type = String(item.StoreType || "").toLowerCase().trim();
-
-  if (type.includes("kho")) return true;
-  if (code === "DN" || code.startsWith("KHO_") || code.startsWith("KHO") || code.startsWith("K_")) return true;
-  if (
-    name.startsWith("kho ") ||
-    name.startsWith("kho.") ||
-    name.startsWith("kho-") ||
-    name.includes("kho tổng") ||
-    name.includes("kho chi nhánh") ||
-    name.includes("kho tong") ||
-    name.includes("kho chi nhanh")
-  ) {
-    return true;
-  }
-  return false;
-}
-
-function parseDate(value) {
-  if (!value) return null;
-  if (value instanceof Date) return value;
-  const text = String(value).trim();
-  const aspNet = text.match(/\/Date\((\d+)\)\//);
-  if (aspNet) return new Date(Number(aspNet[1]));
-  const ddmmyyyy = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-  if (ddmmyyyy) return new Date(Number(ddmmyyyy[3]), Number(ddmmyyyy[2]) - 1, Number(ddmmyyyy[1]));
-  const d = new Date(text.replace(" ", "T"));
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function classifyExpiry(value) {
-  const date = parseDate(value);
-  if (!date) return { status: "normal", days: null };
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const expiry = new Date(date);
-  expiry.setHours(0, 0, 0, 0);
-
-  const diffDays = Math.floor((expiry.getTime() - today.getTime()) / 86400000);
-  if (diffDays < 0) return { status: "expired", days: diffDays };
-  if (diffDays <= 90) return { status: "danger", days: diffDays };
-  if (diffDays <= 180) return { status: "warning", days: diffDays };
-  if (diffDays <= 360) return { status: "safe", days: diffDays };
-  return { status: "normal", days: diffDays };
-}
-
-function extractProvince(shopName) {
-  const s = String(shopName || "").toLowerCase();
-  if (s.includes("khánh hòa") || s.includes("khanh hoa") || s.includes("nha trang") || s.includes("cam ranh")) return "Khánh Hòa";
-  if (s.includes("gia lai") || s.includes("pleiku")) return "Gia Lai";
-  if (s.includes("đắk lắk") || s.includes("dak lak") || s.includes("buôn ma thuột") || s.includes("bmt")) return "Đắk Lắk";
-  if (s.includes("đà nẵng") || s.includes("da nang") || s.includes("liên chiểu") || s.includes("hải châu") || s.includes("ngũ hành sơn") || s.includes("thanh khê") || s.includes("sơn trà")) return "Đà Nẵng";
-  if (s.includes("quảng nam") || s.includes("hội an") || s.includes("tam kỳ")) return "Quảng Nam";
-  if (s.includes("huế") || s.includes("thừa thiên")) return "Thừa Thiên Huế";
-  if (s.includes("hà nội") || s.includes("ha noi")) return "Hà Nội";
-  if (s.includes("hồ chí minh") || s.includes("hcm") || s.includes("sài gòn")) return "Hồ Chí Minh";
-  const parts = String(shopName || "").split("-");
-  if (parts.length > 1) {
-    const last = parts[parts.length - 1].trim();
-    if (last.length > 2) return last;
-  }
-  return "Miền Trung";
-}
+// ── 3. Logic tính summary tồn kho nằm ở scripts/inventory-summary-utils.js ──
+// (dùng chung với fetch-upharma-data.js để hai pipeline không lệch nhau nữa)
 
 // ── 4. Request Upharma API ──────────────────────────────────────────────────
 async function requestUpharma(pathname, payload) {
@@ -247,7 +181,7 @@ async function runSyncTask() {
     // Lặp qua từng nhà thuốc
     for (const shop of shops) {
       console.log(`\n[CRON] ── Đang xử lý: ${shop.ShopCode} (${shop.ShopName}) ──`);
-      let filteredList = [];
+      let shopInventorySummary = null;
 
       // ── BƯỚC 2: LẤY VÀ LỌC TỒN KHO (INVENTORY) ──────────────────────────
       try {
@@ -265,39 +199,14 @@ async function runSyncTask() {
 
         const rawList = extractArray(invRes);
 
-        // Quy tắc lọc & chuẩn hóa
-        filteredList = rawList
-          .filter((item) => {
-            if (isWarehouseStore(item)) return false;
-            const pCode = String(item.ProductCode || item.ProductID || item.MaSP || "").toUpperCase().trim();
-            const pName = String(item.ProductName || item.Product_Name || item.TenSP || "").toUpperCase().trim();
-            if (pCode.includes("VOUCHER") || pName.includes("VOUCHER") || pCode.startsWith("VC")) {
-              return false;
-            }
-            return true;
-          })
-          .map((item) => {
-            const expRaw = item.ExpirationDate || item.ExpDate || item.ExpireDate || item.HanDung || item.HSD || "";
-            const { status, days } = classifyExpiry(expRaw);
-            const qty = Number(item.Quantity || item.Qty || item.TonKho || item.SL) || 0;
-            const price = Number(item.UnitPrice || item.Price || item.GiaBan || item.RetailPrice || item.BasePrice) || 0;
+        // Lọc & tính summary bằng logic dùng chung (inventory-summary-utils):
+        // semantics khớp phần mềm uPharma desktop — hết hạn tách riêng,
+        // dưới 3 tháng = còn hạn 0–90 ngày, dưới 6 tháng = 91–180 ngày,
+        // dưới 12 tháng = cộng dồn ≤360 ngày.
+        shopInventorySummary = computeShopInventorySummary(rawList, shop);
 
-            return {
-              ...item,
-              __shopCode: shop.ShopCode,
-              __shopName: shop.ShopName,
-              ShopCode: shop.ShopCode,
-              ShopName: shop.ShopName,
-              Quantity: qty,
-              Price: price,
-              stockValue: price * qty,
-              expiryStatus: status,
-              expiryDaysRemaining: days,
-            };
-          });
-
-        console.log(`[CRON] ✓ Lọc được ${filteredList.length} sản phẩm tồn kho (gốc: ${rawList.length}).`);
-        totalInventoryRecords += filteredList.length;
+        console.log(`[CRON] ✓ Lọc được ${shopInventorySummary.recordCount} sản phẩm tồn kho (gốc: ${rawList.length}).`);
+        totalInventoryRecords += shopInventorySummary.recordCount;
       } catch (invErr) {
         console.error(`[CRON] ✗ Lỗi tải tồn kho shop ${shop.ShopCode}:`, invErr.message);
       }
@@ -371,63 +280,30 @@ async function runSyncTask() {
         console.error(`[CRON] ✗ Lỗi tính HHS shop ${shop.ShopCode}:`, planErr.message);
       }
 
-      // ── BƯỚC 4: TÍNH TOÁN DÒNG TỔNG QUAN TỒN KHO CHO SHOP ───
-      const totalStockVal = filteredList.reduce((s, i) => s + (Number(i.stockValue) || 0), 0);
-      const itemsUnder3M = filteredList.filter((i) => i.expiryDaysRemaining !== null && i.expiryDaysRemaining <= 90);
-      const dateUnder3MValue = itemsUnder3M.reduce((s, i) => s + (Number(i.stockValue) || 0), 0);
-      const dateUnder3MRate = totalStockVal > 0 ? (dateUnder3MValue / totalStockVal) * 100 : 0;
+      // ── BƯỚC 4: GHI DÒNG TỔNG QUAN TỒN KHO CHO SHOP ───
+      // Summary đã tính ở Bước 2 bằng logic dùng chung. Nếu tải tồn kho lỗi
+      // thì bỏ qua shop này (giữ số cũ trên Firebase), không ghi đè bằng 0.
+      if (shopInventorySummary) {
+        inventoryByShop[shop.ShopCode] = shopInventorySummary;
+        overviewItems.push(shopInventorySummary);
 
-      const itemsUnder6M = filteredList.filter((i) => i.expiryDaysRemaining !== null && i.expiryDaysRemaining <= 180);
-      const dateUnder6MValue = itemsUnder6M.reduce((s, i) => s + (Number(i.stockValue) || 0), 0);
-      const dateUnder6MRate = totalStockVal > 0 ? (dateUnder6MValue / totalStockVal) * 100 : 0;
-
-      const itemsUnder12M = filteredList.filter((i) => i.expiryDaysRemaining !== null && i.expiryDaysRemaining <= 360);
-      const dateUnder12MValue = itemsUnder12M.reduce((s, i) => s + (Number(i.stockValue) || 0), 0);
-      const dateUnder12MRate = totalStockVal > 0 ? (dateUnder12MValue / totalStockVal) * 100 : 0;
-
-      const province = extractProvince(shop.ShopName);
-      const r3 = totalStockVal > 0 ? Number(((dateUnder3MValue / totalStockVal) * 100).toFixed(2)) : 0;
-      const r6 = totalStockVal > 0 ? Number(((dateUnder6MValue / totalStockVal) * 100).toFixed(2)) : 0;
-      const r12 = totalStockVal > 0 ? Number(((dateUnder12MValue / totalStockVal) * 100).toFixed(2)) : 0;
-
-      const shopSummaryItem = {
-        Date_3th: dateUnder3MValue,
-        Date_6th: dateUnder6MValue,
-        Date_12th: dateUnder12MValue,
-        Total: totalStockVal,
-        Date_3th_Rate: r3,
-        Date_6th_Rate: r6,
-        Date_12th_Rate: r12,
-        ShopCode: shop.ShopCode,
-        ShopName: shop.ShopName,
-        Province: province,
-        // CamelCase aliases để tương thích toàn bộ hệ thống
-        shopCode: shop.ShopCode,
-        shopName: shop.ShopName,
-        province: province,
-        totalStockValue: totalStockVal,
-        dateUnder3MValue,
-        dateUnder3MRate: r3,
-        dateUnder6MValue,
-        dateUnder6MRate: r6,
-        dateUnder12MValue,
-        dateUnder12MRate: r12,
-      };
-
-      inventoryByShop[shop.ShopCode] = shopSummaryItem;
-      overviewItems.push(shopSummaryItem);
-
-      // Đẩy tồn kho rút gọn của shop lên Firebase (không chứa mảng chi tiết sản phẩm)
-      await writeToFirebase(`shops/${shop.ShopCode}/upharma_data/inventory`, shopSummaryItem);
+        // Ghi vào node summary RIÊNG. Không ghi vào
+        // shops/{code}/upharma_data/inventory — node đó thuộc về dữ liệu thô
+        // do fetch-upharma-data.js quản lý, ghi đè vào sẽ phá các trang chi tiết.
+        await writeToFirebase(`shops/${shop.ShopCode}/upharma_data/inventory_summary`, shopInventorySummary);
+      } else {
+        console.warn(`[CRON] ⚠ Bỏ qua summary tồn kho shop ${shop.ShopCode} do lỗi tải dữ liệu.`);
+      }
 
       totalSyncedShops++;
     }
 
     // ── GHI TOÀN BỘ INVENTORY VÀ TỔNG QUAN LÊN FIREBASE RTDB ─────────────────────
     // 1. Ghi inventory.json dạng { [ShopCode]: { Date_3th, Date_6th, ... } }
+    // KHÔNG ghi vào upharma_data/inventory — node đó là dữ liệu thô gộp
+    // do fetch-upharma-data.js quản lý.
     await writeToFirebase("inventory", inventoryByShop);
-    await writeToFirebase("upharma_data/inventory", inventoryByShop);
-    console.log(`[CRON] ✓ Đã lưu ${Object.keys(inventoryByShop).length} nhà thuốc vào inventory và upharma_data/inventory trên Firebase!`);
+    console.log(`[CRON] ✓ Đã lưu ${Object.keys(inventoryByShop).length} nhà thuốc vào inventory trên Firebase!`);
 
     // 2. Ghi shops_inventory_overview dạng bảng tổng hợp
     const overviewPayload = {

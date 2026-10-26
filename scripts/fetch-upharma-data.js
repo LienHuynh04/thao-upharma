@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getDatabase } = require('firebase-admin/database');
+const { computeShopInventorySummary } = require('./inventory-summary-utils');
 
 let db = null;
 if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
@@ -703,6 +704,8 @@ async function run() {
     console.log(`[resource] DONE ${resourceName}. Đã lưu ${resourceName}.json (đã ẩn danh PII)`);
   }
 
+  await uploadInventorySummaries(shops, allShopsData, db);
+
   if (allShopsData.sales_speed && Object.keys(allShopsData.sales_speed).length > 0) {
     await calculateAndUploadSummaries(shops, allShopsData, db);
   }
@@ -947,6 +950,78 @@ async function fetchAndUploadProductCatalog(loginData, db, allShopsData) {
     console.log(`[product_catalog] ✅ Đã lưu ${items.length} sản phẩm sạch lên Firebase /product_catalog`);
   } catch (err) {
     console.warn("[product_catalog] Lỗi:", err.message || err);
+  }
+}
+
+/**
+ * Tính summary tồn kho cho từng shop từ dữ liệu thô vừa fetch và ghi lên
+ * Firebase: node gốc `inventory`, `shops_inventory_overview` (trang Tồn kho
+ * đọc các node này) và node riêng `shops/{code}/upharma_data/inventory_summary`.
+ *
+ * Trước đây các node summary này chỉ được ghi bởi cron-sync-inventory.js
+ * (không chạy trong CI) nên số tổng quan bị đóng băng, trong khi dữ liệu thô
+ * vẫn được cập nhật mỗi 30 phút. Nay script CI tự ghi summary ở mỗi lần sync.
+ * Node summary được tách riêng, KHÔNG ghi đè node dữ liệu thô
+ * `shops/{code}/upharma_data/inventory`.
+ */
+async function uploadInventorySummaries(shops, allShopsData, db) {
+  const inventoryByShopRaw = allShopsData.inventory || {};
+  if (Object.keys(inventoryByShopRaw).length === 0) {
+    console.log("[inventory_summary] Không có dữ liệu tồn kho trong lần sync này, bỏ qua.");
+    return;
+  }
+  if (!db) {
+    console.warn("[inventory_summary] Không có kết nối Firebase Admin, bỏ qua ghi summary tồn kho.");
+    return;
+  }
+
+  try {
+    // Giữ summary cũ cho shop fetch lỗi/rỗng lần này, tránh ghi đè bằng số 0.
+    let previous = {};
+    try {
+      const snap = await db.ref("inventory").once("value");
+      previous = snap.val() || {};
+    } catch {}
+
+    const inventoryByShop = {};
+    const overviewItems = [];
+
+    for (const shop of shops) {
+      const rows = inventoryByShopRaw[shop.ShopCode];
+      if (Array.isArray(rows) && rows.length > 0) {
+        const summary = computeShopInventorySummary(rows, shop);
+        inventoryByShop[shop.ShopCode] = summary;
+        overviewItems.push(summary);
+        await db.ref(`shops/${shop.ShopCode}/upharma_data/inventory_summary`).set(summary);
+      } else if (previous[shop.ShopCode]) {
+        inventoryByShop[shop.ShopCode] = previous[shop.ShopCode];
+        overviewItems.push(previous[shop.ShopCode]);
+        console.warn(`[inventory_summary] Shop ${shop.ShopCode} không có dữ liệu mới, giữ summary cũ.`);
+      }
+    }
+
+    if (overviewItems.length === 0) {
+      console.warn("[inventory_summary] Không shop nào có summary, bỏ qua ghi.");
+      return;
+    }
+
+    const now = new Date();
+    const targetMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const overviewPayload = {
+      updatedAt: now.getTime(),
+      fetchedAt: now.toISOString(),
+      month: targetMonthStr,
+      totalShops: overviewItems.length,
+      items: overviewItems,
+      byShop: inventoryByShop,
+    };
+
+    await db.ref("inventory").set(inventoryByShop);
+    await db.ref("shops_inventory_overview").set(overviewPayload);
+    await db.ref("upharma_data/shops_inventory_overview").set(overviewPayload);
+    console.log(`[inventory_summary] ✅ Đã ghi summary tồn kho cho ${overviewItems.length} nhà thuốc (inventory + shops_inventory_overview).`);
+  } catch (err) {
+    console.warn("[inventory_summary] Lỗi ghi summary tồn kho:", err.message);
   }
 }
 

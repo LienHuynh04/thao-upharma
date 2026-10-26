@@ -139,40 +139,54 @@ export class UpharmaService {
   private sessionData: LoginResponse | null = null;
   private shopList: ShopInfo[] = [];
 
-  private async fetchAggregatedFirebaseResource(resourceName: string, normalizedFirebase: string): Promise<Record<string, any> | null> {
+  private async fetchAggregatedFirebaseResource(
+    resourceName: string,
+    normalizedFirebase: string,
+    forceRefresh = false,
+  ): Promise<Record<string, any> | null> {
     const cached = this.aggregatedCache.get(resourceName);
     const now = Date.now();
-    if (cached && (now - cached.fetchedAt) < 60000) {
+    if (!forceRefresh && cached && (now - cached.fetchedAt) < 60000) {
       return cached.data;
     }
 
-    if (this.aggregatedInFlight.has(resourceName)) {
+    if (!forceRefresh && this.aggregatedInFlight.has(resourceName)) {
       return this.aggregatedInFlight.get(resourceName)!;
     }
 
+    if (forceRefresh) {
+      this.aggregatedCache.delete(resourceName);
+    }
+
+    let activePromise: Promise<Record<string, any> | null> | null = null;
     const promise = (async () => {
       try {
         const url = `${normalizedFirebase}/upharma_data/${resourceName}.json`;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 8000);
-        const res = await fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+        const res = await fetch(url, { signal: controller.signal, cache: "no-store" }).finally(() => clearTimeout(timeoutId));
         if (!res.ok) return null;
         const json = await res.json();
         if (!json) return null;
         const shopMap = json.data || json;
         if (shopMap && typeof shopMap === 'object' && !Array.isArray(shopMap)) {
           console.log(`[Firebase Fetch] ✅ Đã tải gộp ${resourceName} thành công từ 1 request: ${url}`);
-          this.aggregatedCache.set(resourceName, { data: shopMap, fetchedAt: Date.now() });
+          if (activePromise && this.aggregatedInFlight.get(resourceName) === activePromise) {
+            this.aggregatedCache.set(resourceName, { data: shopMap, fetchedAt: Date.now() });
+          }
           return shopMap;
         }
         return null;
       } catch {
         return null;
       } finally {
-        this.aggregatedInFlight.delete(resourceName);
+        if (activePromise && this.aggregatedInFlight.get(resourceName) === activePromise) {
+          this.aggregatedInFlight.delete(resourceName);
+        }
       }
     })();
 
+    activePromise = promise;
     this.aggregatedInFlight.set(resourceName, promise);
     return promise;
   }
@@ -347,7 +361,11 @@ export class UpharmaService {
           return (json?.data || {}) as T;
         }
 
-        const shopMap = await this.fetchAggregatedFirebaseResource(resourceName, normalizedFirebase);
+        const shopMap = await this.fetchAggregatedFirebaseResource(
+          resourceName,
+          normalizedFirebase,
+          options.forceRefresh,
+        );
         if (shopMap) {
           const shopsData: any[] = [];
           for (const shop of shopsToFetch) {
@@ -820,7 +838,11 @@ export class UpharmaService {
         const shopsToFetch = requestedShopCodes.size > 0
           ? this.shopList.filter((shop) => requestedShopCodes.has(shop.ShopCode))
           : this.shopList;
-        const shopMap = await this.fetchAggregatedFirebaseResource(resourceName, normalizedFirebase);
+        const shopMap = await this.fetchAggregatedFirebaseResource(
+          resourceName,
+          normalizedFirebase,
+          options.forceRefresh,
+        );
         if (shopMap) {
           const shopsData: any[] = [];
           for (const shop of shopsToFetch) {

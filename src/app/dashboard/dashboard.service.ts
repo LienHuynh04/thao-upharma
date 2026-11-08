@@ -122,6 +122,54 @@ export class DashboardService {
 
   constructor(private upharma: UpharmaService) {}
 
+  /**
+   * Tải danh sách mã nhà thuốc bị ẩn từ localStorage (nhanh) + Firebase (đồng bộ).
+   * Cùng logic với nha-thuoc.component.ts → loadHiddenShops().
+   */
+  private async loadHiddenShopCodes(): Promise<Set<string>> {
+    const session = this.upharma.getSession();
+    const uPharmaID = session
+      ? String(session.UserInfo.uPharmaID || '').replace(/[.#$\[\]\/]/g, '_')
+      : 'default_user';
+
+    const hidden = new Set<string>();
+
+    // 1. localStorage
+    try {
+      const local = typeof localStorage !== 'undefined'
+        ? localStorage.getItem(`upharma_hidden_shops_${uPharmaID}`)
+        : null;
+      if (local) {
+        for (const c of JSON.parse(local) as string[]) hidden.add(c);
+      }
+    } catch {}
+
+    // 2. Firebase hidden_shops/{uPharmaID}
+    try {
+      const fbUrl = (environment as any).firebaseDbUrl;
+      if (fbUrl) {
+        const res = await fetch(
+          `${String(fbUrl).replace(/\/$/, '')}/hidden_shops/${uPharmaID}.json`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data === 'object') {
+            for (const c of Object.keys(data)) hidden.add(c);
+            // Cập nhật localStorage để offline cũng đúng
+            try {
+              localStorage.setItem(
+                `upharma_hidden_shops_${uPharmaID}`,
+                JSON.stringify([...hidden])
+              );
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+
+    return hidden;
+  }
+
   async getManagedEmployeeSummary(): Promise<ManagedEmployeeSummary> {
     const session = this.upharma.getSession();
     if (!session) {
@@ -291,11 +339,16 @@ export class DashboardService {
     } catch {}
 
     const uniqueShops = [...new Map(shops.filter(shop => shop.ShopCode).map(shop => [shop.ShopCode, shop])).values()];
+
+    // ── BƯỚC 3 (trước khi lặp shop): Lọc bỏ nhà thuốc bị ẩn ──────────────────
+    const hiddenShopCodes = await this.loadHiddenShopCodes();
+    const visibleShops = uniqueShops.filter(shop => !hiddenShopCodes.has(shop.ShopCode));
+
     const CHT_REQUIRED = 1;
     const NVBH_REQUIRED = 3;
     const result: ShopStaffInfo[] = [];
 
-    for (const shop of uniqueShops) {
+    for (const shop of visibleShops) {
       let chtActual = 0;
       let nvbhActual = 0;
       try {
@@ -400,15 +453,18 @@ export class DashboardService {
     this.upharma.clearResourceCache();
   }
 
-  public getDashboardShops(shops: ShopInfo[] = this.upharma.ensureLogin().UserInfo.ShopLst) {
+  public async getDashboardShops(shops: ShopInfo[] = this.upharma.ensureLogin().UserInfo.ShopLst): Promise<{ province: string; code: string; name: string }[]> {
+    const hiddenCodes = await this.loadHiddenShopCodes();
     const uniqueShops = new Map(
       (shops || []).filter(shop => shop.ShopCode).map(shop => [shop.ShopCode, shop])
     );
-    return [...uniqueShops.values()].map(shop => ({
-      province: this.getShopProvince(shop),
-      code: shop.ShopCode,
-      name: shop.ShopName || shop.ShopCode
-    }));
+    return [...uniqueShops.values()]
+      .filter(shop => !hiddenCodes.has(shop.ShopCode))
+      .map(shop => ({
+        province: this.getShopProvince(shop),
+        code: shop.ShopCode,
+        name: shop.ShopName || shop.ShopCode
+      }));
   }
 
   private getShopProvince(shop: Pick<ShopInfo, 'ShopCode' | 'ShopName' | 'ShopAddress'>): string {
@@ -473,7 +529,8 @@ export class DashboardService {
     forceRefresh = false
   ): Promise<DashboardOverviewResult> {
     const session = this.upharma.ensureLogin();
-    const dashboardShops = this.getDashboardShops(session.UserInfo.ShopLst);
+    // getDashboardShops là async — tự động lọc bỏ nhà thuốc bị ẩn
+    const dashboardShops = await this.getDashboardShops(session.UserInfo.ShopLst);
     const scopeKey = dashboardShops.map(shop => shop.code).sort().join(',');
     const cacheKey = `${session.UserInfo.uPharmaID}_${scopeKey}_${filterMode}_${selectedMonth}_${selectedYear}`;
 
@@ -596,7 +653,7 @@ export class DashboardService {
     filterMode: 'month' | 'quarter' | 'year',
     selectedMonth: number,
     selectedYear: number,
-    dashboardShops: ReturnType<DashboardService['getDashboardShops']>
+    dashboardShops: { province: string; code: string; name: string }[]
   ): DashboardOverviewResult {
     let actualSales = 0;
     let targetSales = 0;

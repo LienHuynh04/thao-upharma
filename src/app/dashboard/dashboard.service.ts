@@ -181,8 +181,11 @@ export class DashboardService {
     }
 
     const uniqueShops = [...new Map(shops.filter(shop => shop.ShopCode).map(shop => [shop.ShopCode, shop])).values()];
+    const hiddenShopCodes = await this.loadHiddenShopCodes();
+    const visibleShops = uniqueShops.filter(shop => !hiddenShopCodes.has(shop.ShopCode));
+
     const results: PromiseSettledResult<ManagedEmployee[]>[] = [];
-    for (const shop of uniqueShops) {
+    for (const shop of visibleShops) {
       try {
         const salesmen = await this.upharma.getSalesmanByShop(shop.ShopCode);
         results.push({
@@ -198,7 +201,7 @@ export class DashboardService {
     }
 
     const failedShops = results.flatMap((result, index) =>
-      result.status === 'rejected' ? [uniqueShops[index].ShopCode] : []
+      result.status === 'rejected' ? [visibleShops[index].ShopCode] : []
     );
     if (failedShops.length > 0) {
       throw new Error(`Could not load employees for: ${failedShops.join(', ')}`);

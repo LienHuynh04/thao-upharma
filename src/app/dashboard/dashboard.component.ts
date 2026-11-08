@@ -52,26 +52,6 @@ Chart.register(...registerables);
             </button>
           </div>
 
-          <!-- Period toggle & Month selection -->
-          <div class="period-toggle">
-            <button [class.active]="filterMode === 'month'" (click)="setOverviewPeriod('month')">Tháng</button>
-            <button [class.active]="filterMode === 'quarter'" (click)="setOverviewPeriod('quarter')">Quý</button>
-            <button [class.active]="filterMode === 'year'" (click)="setOverviewPeriod('year')">Năm</button>
-          </div>
-
-          <div *ngIf="filterMode === 'month'" class="month-selector-wrap">
-            <select
-              class="form-select form-select-sm month-select-dropdown"
-              [ngModel]="selectedMonth"
-              (ngModelChange)="onMonthChange($event)"
-              aria-label="Chọn tháng hiển thị"
-            >
-              @for (m of availableMonths; track m.value) {
-                <option [value]="m.value">{{ m.label }}</option>
-              }
-            </select>
-          </div>
-
           <button
             type="button"
             class="btn-refresh-data"
@@ -762,49 +742,6 @@ Chart.register(...registerables);
       background: #ffffff;
       color: #0d472b;
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-    }
-
-    .period-toggle {
-      display: flex;
-      background-color: #e2e8f0;
-      padding: 3px;
-      border-radius: 8px;
-      gap: 2px;
-    }
-
-    .period-toggle button {
-      border: none;
-      background: transparent;
-      padding: 5px 14px;
-      font-size: 12px;
-      font-weight: 700;
-      color: #4b5563;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .period-toggle button.active {
-      background-color: #ffffff;
-      color: #0d472b;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-
-    .month-selector-wrap {
-      display: inline-flex;
-      align-items: center;
-    }
-
-    .month-select-dropdown {
-      height: 31px;
-      font-size: 11.5px;
-      font-weight: 700;
-      color: #0f172a;
-      background: #ffffff;
-      border: 1px solid #cbd5e1;
-      border-radius: 7px;
-      padding: 2px 24px 2px 8px;
-      cursor: pointer;
     }
 
     .btn-refresh-data {
@@ -1982,12 +1919,6 @@ export class DashboardComponent implements OnInit, AfterViewInit {
   }
 
   getSubtitleText(): string {
-    if (this.filterMode === 'quarter') {
-      const q = Math.ceil(this.selectedMonth / 3);
-      return `Quý ${q}/${this.selectedYear} · ${this.shopList.length} nhà thuốc`;
-    } else if (this.filterMode === 'year') {
-      return `Năm ${this.selectedYear} · ${this.shopList.length} nhà thuốc`;
-    }
     return `Tháng ${this.selectedMonth}/${this.selectedYear} · ${this.shopList.length} nhà thuốc`;
   }
 

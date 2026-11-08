@@ -5,7 +5,7 @@ import { UpharmaService, ShopPlanApiItem } from '../upharma.service';
 import { environment } from '../../environments/environment';
 
 export interface ShopListItem {
-  province: 'ĐÀ' | 'HU';
+  province: string;
   code: string;
   nameAddress: string;
   phone: string;
@@ -119,8 +119,11 @@ export interface ShopListItem {
                 @for (shop of displayedShops; track shop.code) {
                   <tr style="border-bottom: 1px solid #f1f5f9;">
                   <td class="px-2 text-center">
-                    <span class="badge px-2 py-1" [style.background-color]="shop.province === 'ĐÀ' ? '#e0e7ff' : '#f3e8ff'" [style.color]="shop.province === 'ĐÀ' ? '#4338ca' : '#7e22ce'" style="font-weight: 700; font-size: 11px;">
-                      {{ shop.province === 'ĐÀ' ? 'ĐN' : 'Huế' }}
+                    <span class="badge px-2 py-1"
+                          [style.background-color]="getProvinceBg(shop.province)"
+                          [style.color]="getProvinceColor(shop.province)"
+                          style="font-weight: 700; font-size: 11px;">
+                      {{ getProvinceLabel(shop.province) }}
                     </span>
                   </td>
                   <td class="px-2 fw-bold text-dark text-nowrap" style="white-space: nowrap !important;">{{ shop.code }}</td>
@@ -268,68 +271,119 @@ export class NhaThuocComponent implements OnInit {
     ]);
   }
 
+  getProvinceLabel(p: string): string {
+    if (p === 'ĐÀ' || p === 'ĐN') return 'ĐN';
+    if (p === 'HU') return 'Huế';
+    if (p === 'QNa') return 'Q.Nam';
+    if (p === 'QNg') return 'Q.Ngãi';
+    return p || '—';
+  }
+
+  getProvinceBg(p: string): string {
+    if (p === 'ĐÀ' || p === 'ĐN') return '#e0e7ff';
+    if (p === 'HU') return '#f3e8ff';
+    if (p === 'QNa') return '#ffedd5';
+    if (p === 'QNg') return '#ccfbf1';
+    return '#f1f5f9';
+  }
+
+  getProvinceColor(p: string): string {
+    if (p === 'ĐÀ' || p === 'ĐN') return '#4338ca';
+    if (p === 'HU') return '#7e22ce';
+    if (p === 'QNa') return '#c2410c';
+    if (p === 'QNg') return '#0f766e';
+    return '#475569';
+  }
+
+  getShopProvince(code: string, name: string, address: string): string {
+    const known: Record<string, string> = {
+      SHOP0010: 'ĐN', SHOP0022: 'ĐN', SHOP0025: 'ĐN', SHOP0040: 'ĐN',
+      SHOP0043: 'ĐN', SHOP0046: 'ĐN', SHOP0097: 'ĐN', SHOP0144: 'ĐN',
+      SHOP0119: 'HU', SHOP0120: 'HU', SHOP0133: 'HU',
+      SHOP0038: 'QNa', SHOP0015: 'QNa', SHOP0083: 'QNa', SHOP0039: 'QNa',
+      SHOP0037: 'QNa', SHOP0036: 'QNa', SHOP0082: 'QNa',
+      SHOP0110: 'QNg', SHOP0111: 'QNg', SHOP0114: 'QNg', SHOP0127: 'QNg',
+      SHOP0128: 'QNg', SHOP0151: 'QNg', SHOP0156: 'QNg', SHOP0157: 'QNg',
+    };
+    if (known[code]) return known[code];
+    const loc = `${name || ''} ${address || ''}`.toLowerCase();
+    if (loc.includes('quảng ngãi') || loc.includes('quang ngai')) return 'QNg';
+    if (loc.includes('quảng nam') || loc.includes('quang nam')) return 'QNa';
+    if (loc.includes('đà nẵng') || loc.includes('da nang')) return 'ĐN';
+    if (loc.includes('huế') || loc.includes('hue')) return 'HU';
+    return 'KH';
+  }
+
   async loadShopsData() {
     this.isLoading = true;
     this.loadError = '';
     this.shops = [];
     try {
       const session = this.upharma.ensureLogin();
-      const timeStart = '2026-10-01 00:00:00';
-      const timeEnd = '2026-10-31 23:59:59';
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const lastDay = new Date(currentYear, currentMonth, 0).getDate();
+      const timeStart = `${currentYear}-${pad(currentMonth)}-01 00:00:00`;
+      const timeEnd = `${currentYear}-${pad(currentMonth)}-${pad(lastDay)} 23:59:59`;
 
-      const shopPlansMap = new Map<string, ShopPlanApiItem[]>();
+      // 1. Lấy toàn bộ nhà thuốc phân quyền của user (không filter cứng)
+      let rawShops: any[] = Array.isArray(session.UserInfo.ShopLst) ? session.UserInfo.ShopLst : [];
       const userShopMap = new Map<string, any>();
 
-      await Promise.all(
-        this.shopCatalog.map(async (shop) => {
-          try {
-            const res = await this.upharma.callEndpoint<any>('/ShopPlan/GetShopPlanByTime', {
-              TimeStart: timeStart,
-              TimeEnd: timeEnd,
-              ShopCode: shop.code,
-              Token: session.Token,
-              uPharmaID: String(session.UserInfo.uPharmaID),
-            });
-
-            if (res && Array.isArray(res.ShopPlanLst) && res.ShopPlanLst.length > 0) {
-              shopPlansMap.set(shop.code, res.ShopPlanLst);
-            }
-          } catch (e) {
-            console.warn(`Failed to fetch shop plan for ${shop.code}`);
-          }
-        })
-      );
-
-      // 1. Fetch User Info & Shop List
       try {
         const userInfoRes = await this.upharma.callEndpoint<any>('/User/GetUserInfoByID', {
           uPharmaID: session.UserInfo.uPharmaID,
           Token: session.Token,
         });
         if (userInfoRes && userInfoRes.UserInfo && Array.isArray(userInfoRes.UserInfo.ShopLst)) {
-          userInfoRes.UserInfo.ShopLst.forEach((s: any) => userShopMap.set(s.ShopCode, s));
+          rawShops = userInfoRes.UserInfo.ShopLst;
+          rawShops.forEach((s: any) => userShopMap.set(s.ShopCode, s));
         }
       } catch (e) {
         console.warn('GetUserInfoByID call optional');
       }
 
-      // 2. Fetch Shop Groups
-      try {
-        await this.upharma.callEndpoint<any>('/ShopGroup/GetGShopLst', {
-          Token: session.Token,
-          uPharmaID: String(session.UserInfo.uPharmaID),
-        });
-      } catch (e) {
-        console.warn('GetGShopLst call optional');
+      // Khử trùng theo ShopCode
+      const uniqueShops = [...new Map(rawShops.filter(s => s && s.ShopCode).map(s => [s.ShopCode, s])).values()];
+
+      const shopPlansMap = new Map<string, ShopPlanApiItem[]>();
+      const shopCodes = uniqueShops.map(s => s.ShopCode);
+
+      // Tải chỉ tiêu tháng hiện tại theo nhóm
+      for (let i = 0; i < shopCodes.length; i += 5) {
+        const batch = shopCodes.slice(i, i + 5);
+        await Promise.allSettled(
+          batch.map(async (code) => {
+            try {
+              const res = await this.upharma.callEndpoint<any>('/ShopPlan/GetShopPlanByTime', {
+                TimeStart: timeStart,
+                TimeEnd: timeEnd,
+                ShopCode: code,
+                Token: session.Token,
+                uPharmaID: String(session.UserInfo.uPharmaID),
+              });
+              if (res && Array.isArray(res.ShopPlanLst) && res.ShopPlanLst.length > 0) {
+                shopPlansMap.set(code, res.ShopPlanLst);
+              }
+            } catch (e) {
+              console.warn(`Failed to fetch shop plan for ${code}`);
+            }
+          })
+        );
       }
 
-      this.shops = this.shopCatalog.map(shop => {
-        const plans = shopPlansMap.get(shop.code) || [];
-        const userShop = userShopMap.get(shop.code);
+      const catalogMap = new Map(this.shopCatalog.map(c => [c.code, c]));
 
+      this.shops = uniqueShops.map(raw => {
+        const code = raw.ShopCode;
+        const catalogItem = catalogMap.get(code);
+        const userShop = userShopMap.get(code) || raw;
+
+        const plans = shopPlansMap.get(code) || [];
         let targetDs = 0;
         let targetHhs = 0;
-
         plans.forEach(p => {
           targetDs += Number(p.Amount) || 0;
           targetHhs += Number(p.PointSales01 || p.QuantityHHS) || 0;
@@ -338,18 +392,25 @@ export class NhaThuocComponent implements OnInit {
         const dsTr = targetDs > 0 ? (targetDs / 1000000).toFixed(1) : '0.0';
         const hhsTr = targetHhs > 0 ? (targetHhs / 1000000).toFixed(1) : '0.0';
 
-        const phone = userShop?.PhoneNumber || shop.phone || '';
-        const shopName = String(userShop?.ShopName || shop.nameAddress);
-        const shopAddress = String(userShop?.ShopAddress || '');
+        const phone = userShop.PhoneNumber || userShop.Phone || catalogItem?.phone || '';
+        const shopName = String(userShop.ShopName || catalogItem?.nameAddress || code);
+        const shopAddress = String(userShop.ShopAddress || '');
         const nameAddress = shopAddress
           ? (shopName.includes(shopAddress) ? shopName : `${shopName} - ${shopAddress}`)
-          : shop.nameAddress;
+          : (catalogItem?.nameAddress || shopName);
+
+        const province = this.getShopProvince(code, shopName, shopAddress);
 
         return {
-          ...shop,
+          province,
+          code,
           nameAddress,
           phone,
-          targetDsHhs: `${dsTr} / ${hhsTr}`
+          openDate: catalogItem?.openDate || userShop.TimeCreate?.slice(0, 10) || '—',
+          age: catalogItem?.age || '—',
+          currentPhase: catalogItem?.currentPhase || 'Giai đoạn 3 (Ổn định)',
+          targetDsHhs: `${dsTr} / ${hhsTr}`,
+          gpp: catalogItem?.gpp || 'Đạt GPP'
         };
       });
 

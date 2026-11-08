@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { ShopInfo, UpharmaService, ShopPlanApiItem } from '../upharma.service';
+import { environment } from '../../environments/environment';
 
 export interface DashboardShopItem {
   province: string;
@@ -72,20 +73,45 @@ export interface ManagedEmployeeSummary {
   salesRepresentatives: number;
 }
 
+export interface ShopStaffInfo {
+  shopCode: string;
+  province: string;
+  chtActual: number;
+  chtRequired: number;
+  nvbhActual: number;
+  nvbhRequired: number;
+  label: string; // e.g. "Thiếu CHT", "Dư 1 NVBH", ""
+}
+
 type ManagedEmployee = Record<string, unknown>;
 
 const KNOWN_SHOP_REGION_BY_CODE: Record<string, string> = {
-  SHOP0010: 'ĐÀ',
-  SHOP0022: 'ĐÀ',
-  SHOP0025: 'ĐÀ',
-  SHOP0040: 'ĐÀ',
-  SHOP0043: 'ĐÀ',
-  SHOP0046: 'ĐÀ',
-  SHOP0097: 'ĐÀ',
+  SHOP0010: 'ĐN',
+  SHOP0022: 'ĐN',
+  SHOP0025: 'ĐN',
+  SHOP0040: 'ĐN',
+  SHOP0043: 'ĐN',
+  SHOP0046: 'ĐN',
+  SHOP0097: 'ĐN',
   SHOP0119: 'HU',
   SHOP0120: 'HU',
   SHOP0133: 'HU',
-  SHOP0144: 'ĐÀ',
+  SHOP0144: 'ĐN',
+  SHOP0038: 'QNa',
+  SHOP0015: 'QNa',
+  SHOP0083: 'QNa',
+  SHOP0039: 'QNa',
+  SHOP0037: 'QNa',
+  SHOP0036: 'QNa',
+  SHOP0082: 'QNa',
+  SHOP0110: 'QNg',
+  SHOP0111: 'QNg',
+  SHOP0114: 'QNg',
+  SHOP0127: 'QNg',
+  SHOP0128: 'QNg',
+  SHOP0151: 'QNg',
+  SHOP0156: 'QNg',
+  SHOP0157: 'QNg',
 };
 
 @Injectable({
@@ -201,6 +227,175 @@ export class DashboardService {
     };
   }
 
+  async getPerShopStaffInfo(): Promise<ShopStaffInfo[]> {
+    const session = this.upharma.getSession();
+    if (!session) {
+      throw new Error('No authenticated session is available.');
+    }
+    const shops = session.UserInfo.ShopLst;
+    if (!Array.isArray(shops)) {
+      throw new Error('The signed-in user has no valid managed shop list.');
+    }
+
+    const uPharmaID = String(session.UserInfo.uPharmaID || '').replace(/[.#$\[\]\/]/g, '_');
+
+    // ── BƯỚC 1: Tải hidden employees từ localStorage + Firebase (giống trang Nhân Sự) ──
+    let hiddenKeys = new Set<string>();
+    try {
+      // 1a. Tải từ localStorage trước (nhanh, offline)
+      const local = typeof localStorage !== 'undefined'
+        ? localStorage.getItem(`upharma_hidden_employees_${uPharmaID}`)
+        : null;
+      if (local) {
+        hiddenKeys = new Set(JSON.parse(local));
+      }
+      // 1b. Đồng bộ thêm từ Firebase hidden_employees (giống nhan-su.component.ts)
+      const fbUrl = (environment as any).firebaseDbUrl;
+      if (fbUrl) {
+        try {
+          const res = await fetch(`${String(fbUrl).replace(/\/$/, '')}/hidden_employees/${uPharmaID}.json`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data && typeof data === 'object') {
+              for (const k of Object.keys(data)) {
+                hiddenKeys.add(k);
+              }
+              // Cập nhật lại localStorage để lần sau offline vẫn có
+              try {
+                localStorage.setItem(`upharma_hidden_employees_${uPharmaID}`, JSON.stringify([...hiddenKeys]));
+              } catch {}
+            }
+          }
+        } catch {}
+      }
+    } catch {}
+
+    // ── BƯỚC 2: Tải role overrides từ Firebase (giống applyEmployeeRoleOverrides trong nhan-su) ──
+    const roleOverrides = new Map<string, string>();
+    try {
+      const fbUrl = (environment as any).firebaseDbUrl;
+      if (fbUrl) {
+        const res = await fetch(`${String(fbUrl).replace(/\/$/, '')}/employee_role_overrides/${uPharmaID}.json`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data === 'object' && !Array.isArray(data)) {
+            for (const [key, value] of Object.entries(data)) {
+              const v = value as any;
+              if (v && typeof v === 'object' && typeof v['role'] === 'string') {
+                roleOverrides.set(key, v['role']);
+              }
+            }
+          }
+        }
+      }
+    } catch {}
+
+    const uniqueShops = [...new Map(shops.filter(shop => shop.ShopCode).map(shop => [shop.ShopCode, shop])).values()];
+    const CHT_REQUIRED = 1;
+    const NVBH_REQUIRED = 3;
+    const result: ShopStaffInfo[] = [];
+
+    for (const shop of uniqueShops) {
+      let chtActual = 0;
+      let nvbhActual = 0;
+      try {
+        const salesmen = await this.upharma.getSalesmanByShop(shop.ShopCode);
+
+        // ── BƯỚC 3: Lọc nhân viên (giống nhan-su.component.ts → mapEmployee + deduplicateEmployees) ──
+        const activeEmployees = salesmen.filter((emp: any) => {
+          // Lọc người đã nghỉ
+          const resigned = emp['IsResign'];
+          if (resigned === true || Number(resigned) === 1 || String(resigned).toLowerCase() === 'true') {
+            return false;
+          }
+
+          // Lọc đúng ShopCode
+          const empShop = String(emp['ShopCode'] || emp['shopCode'] || emp['ShopID'] || '').trim().toUpperCase();
+          if (empShop && empShop !== shop.ShopCode.trim().toUpperCase()) {
+            return false;
+          }
+
+          // Lọc bỏ nhân viên bị ẩn (key giống hệt getEmployeeKey trong nhan-su)
+          const empCode = String(
+            emp['EmployeeCode'] || emp['uPharmaIDCode'] || emp['EmCode'] ||
+            emp['EmployeeID'] || emp['uPharmaID'] || emp['EmployeeName'] ||
+            emp['FullName'] || ''
+          ).trim().toLowerCase();
+          const rawKey = `${empCode}__${shop.ShopCode.trim().toLowerCase()}`.replace(/[.#$\[\]\/]/g, '_');
+          if (hiddenKeys.has(rawKey)) {
+            return false;
+          }
+
+          return true;
+        });
+
+        // Deduplicate theo mã nhân viên, áp dụng role override từ Firebase
+        const uniqueMap = new Map<string, { isManager: boolean }>();
+        for (const emp of activeEmployees) {
+          const empCode = String(
+            emp['EmployeeCode'] || emp['uPharmaIDCode'] || emp['EmCode'] ||
+            emp['EmployeeID'] || emp['uPharmaID'] || emp['EmployeeName'] ||
+            emp['FullName'] || ''
+          ).trim().toLowerCase();
+          const empKey = `${empCode}__${shop.ShopCode.trim().toLowerCase()}`.replace(/[.#$\[\]\/]/g, '_');
+
+          // Lấy role từ Firebase override trước, nếu không có thì dùng role từ API
+          const rawRole = String(
+            emp['UserDefineName'] || emp['RoleName'] || emp['UTypeTxt'] ||
+            emp['PositionName'] || emp['JobTitle'] || emp['Title'] ||
+            emp['EmRole'] || emp['ChucVu'] || ''
+          );
+          const overriddenRole = roleOverrides.get(empKey) || rawRole;
+          const roleLower = overriddenRole.toLowerCase();
+
+          const isManager = (
+            roleLower.includes('cửa hàng trưởng') || roleLower.includes('cht') ||
+            roleLower.includes('trưởng cửa hàng') || roleLower.includes('quản lý') ||
+            roleLower.includes('qlnt') || roleLower.includes('trưởng nhà thuốc') ||
+            emp['IsManager'] === true || Number(emp['IsManager']) === 1 ||
+            emp['IsLeader'] === true || Number(emp['IsLeader']) === 1
+          );
+
+          const existing = uniqueMap.get(empCode);
+          if (!existing) {
+            uniqueMap.set(empCode, { isManager });
+          } else if (isManager) {
+            existing.isManager = true;
+          }
+        }
+
+        for (const item of uniqueMap.values()) {
+          if (item.isManager) chtActual++;
+          else nvbhActual++;
+        }
+      } catch {
+        // Nếu không tải được nhân sự của shop, giữ 0/required
+      }
+
+      const labels: string[] = [];
+      if (chtActual < CHT_REQUIRED && nvbhActual < NVBH_REQUIRED) {
+        labels.push(`Thiếu CHT · ${NVBH_REQUIRED - nvbhActual} NVBH`);
+      } else {
+        if (chtActual < CHT_REQUIRED) labels.push('Thiếu CHT');
+        if (nvbhActual < NVBH_REQUIRED) labels.push(`Thiếu ${NVBH_REQUIRED - nvbhActual} NVBH`);
+      }
+      if (nvbhActual > NVBH_REQUIRED) labels.push(`Dư ${nvbhActual - NVBH_REQUIRED} NVBH`);
+      if (chtActual > CHT_REQUIRED) labels.push(`Dư ${chtActual - CHT_REQUIRED} CHT`);
+      if (labels.length === 0) labels.push('Đủ nhân sự');
+
+      result.push({
+        shopCode: shop.ShopCode,
+        province: this.getShopProvince(shop),
+        chtActual,
+        chtRequired: CHT_REQUIRED,
+        nvbhActual,
+        nvbhRequired: NVBH_REQUIRED,
+        label: labels.join(' · ')
+      });
+    }
+    return result;
+  }
+
   public clearCache() {
     this.upharma.clearResourceCache();
   }
@@ -217,10 +412,12 @@ export class DashboardService {
   }
 
   private getShopProvince(shop: Pick<ShopInfo, 'ShopCode' | 'ShopName' | 'ShopAddress'>): string {
-    const location = `${shop.ShopName || ''} ${shop.ShopAddress || ''}`.toLowerCase();
-    if (location.includes('đà nẵng') || location.includes('da nang')) return 'ĐÀ';
-    if (location.includes('huế') || location.includes('hue')) return 'HU';
     if (KNOWN_SHOP_REGION_BY_CODE[shop.ShopCode]) return KNOWN_SHOP_REGION_BY_CODE[shop.ShopCode];
+    const location = `${shop.ShopName || ''} ${shop.ShopAddress || ''}`.toLowerCase();
+    if (location.includes('quảng ngãi') || location.includes('quang ngai')) return 'QNg';
+    if (location.includes('quảng nam') || location.includes('quang nam')) return 'QNa';
+    if (location.includes('đà nẵng') || location.includes('da nang')) return 'ĐN';
+    if (location.includes('huế') || location.includes('hue')) return 'HU';
     return 'KH';
   }
 
@@ -489,7 +686,7 @@ export class DashboardService {
         hueHHS += hhsReal;
         hueHHSTarget += hhsTarget;
         hueInvoices += invCount;
-      } else if (shopDef.province === 'ĐÀ') {
+      } else if (shopDef.province === 'ĐÀ' || shopDef.province === 'ĐN') {
         daNangSales += amtReal;
         daNangTarget += amtTarget;
         daNangHHS += hhsReal;

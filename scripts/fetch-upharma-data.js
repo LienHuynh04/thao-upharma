@@ -328,11 +328,14 @@ function getResourceConfig(resourceName, now = new Date()) {
     shop_plan: {
       pathname: "/ShopPlan/GetShopPlanByTime",
       payload: () => {
-        const startOfYear = `${now.getFullYear() - 1}-01-01 00:00:00`;
-        const endOfYear = `${now.getFullYear()}-12-31 23:59:59`;
+        // Mỗi lần cronjob chỉ lấy tháng hiện tại để giảm tải API và giữ data luôn mới nhất
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1;
+        const monthPad = String(month).padStart(2, '0');
+        const lastDay = new Date(year, month, 0).getDate();
         return {
-          TimeStart: startOfYear,
-          TimeEnd: endOfYear,
+          TimeStart: `${year}-${monthPad}-01 00:00:00`,
+          TimeEnd: `${year}-${monthPad}-${String(lastDay).padStart(2, '0')} 23:59:59`,
         };
       },
     },

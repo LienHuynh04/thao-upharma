@@ -92,6 +92,16 @@ function extractArray(data) {
   return [];
 }
 
+function isFailedApiResponse(data) {
+  if (!data || typeof data !== "object") return false;
+  if (data.RespCode !== undefined && data.RespCode !== 0) return true;
+  if (data.data && typeof data.data === "object") {
+    if (data.data.RespCode !== undefined && data.data.RespCode !== 0) return true;
+  }
+  return [data.RespText, data.data?.RespText]
+    .some((text) => typeof text === "string" && /timeout|timed out/i.test(text));
+}
+
 function formatDateTime(date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Ho_Chi_Minh",
@@ -493,6 +503,10 @@ async function run() {
           ShopLst: shop.ShopCode, // Some APIs like GetReportSalesSpeed use ShopLst
         });
 
+        if (isFailedApiResponse(responseData)) {
+          throw new Error(`Upharma trả về lỗi: ${responseData.RespText || responseData.data?.RespText || "RespCode khác 0"}`);
+        }
+
         const arrayData = extractArray(responseData);
         let mappedArray = arrayData.map((item) => ({
           ...item,
@@ -663,6 +677,12 @@ async function run() {
 
     for (const result of shopResults) {
       data.push(...result.mappedArray);
+    }
+
+    if (failedShops.length > 0) {
+      throw new Error(
+        `Đồng bộ không đầy đủ cho ${resourceName}: ${shops.length - failedShops.length}/${shops.length} nhà thuốc thành công; thất bại: ${failedShops.join("; ")}`
+      );
     }
 
     if (db) {

@@ -36,7 +36,7 @@ jobs:
           UPHARMA_PASSWORD: ${{ secrets.UPHARMA_PASSWORD }}
           FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
           FIREBASE_DATABASE_URL: "https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app"
-        run: node scripts/fetch-upharma-data.js || true
+        run: node scripts/fetch-upharma-data.js
 
       - name: Build Angular Project
         run: npm run build -- --configuration production --base-href /thao-upharma/

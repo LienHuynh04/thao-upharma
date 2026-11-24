@@ -143,6 +143,7 @@ function normalizeCode(value: unknown): string {
 
 interface AllocationImportItem {
   code: string;
+  name: string;
   unit: string;
   packSize: number;
   shopQuotas: Record<string, number>;
@@ -273,7 +274,7 @@ function parseAllocationWorkbook(xlsx: any, workbook: any, currentPackSizes: Map
       packByName.get(normalizeNameKey(name)) ??
       currentPackSizes.get(code) ??
       derivePackSizeFromName(name);
-    items.push({ code, unit, packSize: Math.max(1, Math.round(packSize) || 1), shopQuotas });
+    items.push({ code, name, unit, packSize: Math.max(1, Math.round(packSize) || 1), shopQuotas });
   }
   return { items, shopCodes: shopCols.map((entry) => entry.shopCode) };
 }
@@ -402,6 +403,64 @@ function extractRows(response: unknown): RawRecord[] {
       </div>
       <div *ngIf="detailProduct" class="modal-backdrop fade show"></div>
 
+      <div *ngIf="importPreview" class="modal modal-blur fade show d-block" tabindex="-1" (click)="cancelImportPreview()">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" (click)="$event.stopPropagation()">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Xem trước dữ liệu nhập từ Excel</h5>
+              <button type="button" class="btn-close" (click)="cancelImportPreview()"></button>
+            </div>
+            <div class="modal-body">
+              <p class="mb-2">
+                File <strong>{{ importPreview.fileName }}</strong> — {{ importPreview.items.length }} mã sản phẩm
+                ({{ importPreview.addedCount }} mã mới, {{ importPreview.updatedCount }} mã đã có sẽ cập nhật).
+                Khoán {{ monthLabel.toLowerCase() }} = phân bổ 2 tháng ÷ 2 (làm tròn).
+                Tổng khoán tháng của cả file: <strong>{{ previewGrandTotal() }}</strong>.
+              </p>
+              <p *ngIf="importPreview.missingShops.length" class="text-warning small">
+                Các shop không có trong file phân bổ (không đặt khoán): {{ importPreview.missingShops.join(", ") }}.
+              </p>
+              <div class="table-responsive">
+                <table class="table table-vcenter table-sm mb-0">
+                  <thead>
+                    <tr>
+                      <th>Mã SP</th>
+                      <th>Tên sản phẩm</th>
+                      <th>ĐVT</th>
+                      <th>Quy đổi</th>
+                      <th *ngFor="let shopCode of importPreview.shopCodes" class="text-end">{{ previewShopLabel(shopCode) }}</th>
+                      <th class="text-end">Tổng tháng</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr *ngFor="let item of importPreview.items">
+                      <td class="fw-bold">{{ item.code }}</td>
+                      <td class="text-secondary">{{ item.name || nameOf(item.code) || "—" }}</td>
+                      <td>{{ item.unit || "—" }}</td>
+                      <td>{{ item.packSize }}</td>
+                      <td *ngFor="let shopCode of importPreview.shopCodes" class="text-end">{{ item.shopQuotas[shopCode] ?? "—" }}</td>
+                      <td class="text-end fw-bold">{{ previewItemTotal(item) }}</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <th colspan="4" class="text-end">Tổng theo shop</th>
+                      <th *ngFor="let shopCode of importPreview.shopCodes" class="text-end">{{ previewShopTotal(shopCode) }}</th>
+                      <th class="text-end">{{ previewGrandTotal() }}</th>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" (click)="cancelImportPreview()">Hủy, không nhập</button>
+              <button type="button" class="btn btn-primary" (click)="applyImportPreview()">Đúng rồi — áp dụng vào bảng nhập liệu</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div *ngIf="importPreview" class="modal-backdrop fade show"></div>
+
       <div *ngIf="configLoaded && !configItems.length && !loading && activeTab !== 'form'" class="card">
         <div class="card-body text-center py-5">
           <div class="fs-3 mb-2">Chưa có mã sản phẩm nào được theo dõi</div>
@@ -446,6 +505,17 @@ function extractRows(response: unknown): RawRecord[] {
             <div class="col-md-5">
               <span class="text-secondary small">Khoán tháng hiện tại = phân bổ 2 tháng của từng shop ÷ 2 (làm tròn) — đúng cách file chia theo từng tháng. Quy đổi lấy từ sheet tARGET trong file nếu có. Nhập xong kiểm tra rồi bấm "Lưu thiết lập" để áp dụng.</span>
             </div>
+          </div>
+          <div
+            *ngIf="importStatus"
+            class="alert py-2 mb-3"
+            [ngClass]="importStatus.kind === 'ok' ? 'alert-success' : importStatus.kind === 'error' ? 'alert-danger' : 'alert-info'"
+            role="alert"
+          >
+            <span *ngIf="importStatus.kind === 'busy'" class="spinner-border spinner-border-sm me-2"></span>
+            <span *ngIf="importStatus.kind === 'ok'" class="me-1">✅</span>
+            <span *ngIf="importStatus.kind === 'error'" class="me-1">⚠️</span>
+            {{ importStatus.text }}
           </div>
           <div class="row g-2 align-items-end mb-3">
             <div class="col-md-7">
@@ -718,6 +788,15 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
   newCodesText = "";
   newQuotaDefault: number | null = null;
   draftFeedback = "";
+  importStatus: { kind: "busy" | "ok" | "error" | "info"; text: string } | null = null;
+  importPreview: {
+    fileName: string;
+    items: AllocationImportItem[];
+    shopCodes: string[];
+    addedCount: number;
+    updatedCount: number;
+    missingShops: string[];
+  } | null = null;
   savingConfig = false;
   configSavedText = "";
 
@@ -864,6 +943,8 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
     if (!file) {
       return;
     }
+    this.importStatus = { kind: "busy", text: `Đang đọc file "${file.name}"…` };
+    this.cdr.markForCheck();
     try {
       const xlsx = await import("xlsx");
       const workbook = xlsx.read(await file.arrayBuffer(), { type: "array" });
@@ -876,11 +957,39 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
       }
       const parsed = parseAllocationWorkbook(xlsx, workbook, currentPackSizes);
       if (!parsed || !parsed.items.length) {
-        this.draftFeedback =
-          "Không đọc được file: cần một sheet có cột \"Mã SP\", \"ĐVT target\" và các cột NT… như file phân bổ sản lượng.";
+        this.importStatus = {
+          kind: "error",
+          text: `Không đọc được file "${file.name}": cần một sheet có cột "Mã SP", "ĐVT target" và các cột NT… như file phân bổ sản lượng.`,
+        };
         this.cdr.markForCheck();
         return;
       }
+      const draftCodes = new Set(this.draftItems.map((item) => item.code));
+      const fileShops = new Set(parsed.shopCodes);
+      this.importPreview = {
+        fileName: file.name,
+        items: parsed.items,
+        shopCodes: parsed.shopCodes,
+        addedCount: parsed.items.filter((item) => !draftCodes.has(item.code)).length,
+        updatedCount: parsed.items.filter((item) => draftCodes.has(item.code)).length,
+        missingShops: this.shops.filter((shop) => !fileShops.has(shop.ShopCode)).map((shop) => shop.ShopCode),
+      };
+      this.importStatus = null;
+      this.cdr.markForCheck();
+    } catch {
+      this.importStatus = { kind: "error", text: `Đọc file "${file.name}" thất bại — kiểm tra lại định dạng file (.xlsx).` };
+      this.cdr.markForCheck();
+    }
+  }
+
+  /** Áp dụng dữ liệu trong modal xem trước vào bảng nhập liệu. */
+  applyImportPreview(): void {
+    const preview = this.importPreview;
+    if (!preview) {
+      return;
+    }
+    const parsed = { items: preview.items, shopCodes: preview.shopCodes };
+    {
       const byCode = new Map(this.draftItems.map((item) => [item.code, item]));
       let added = 0;
       let updated = 0;
@@ -913,18 +1022,44 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
           added++;
         }
       }
-      const fileShops = new Set(parsed.shopCodes);
-      const missing = this.shops.filter((shop) => !fileShops.has(shop.ShopCode)).map((shop) => shop.ShopCode);
-      this.draftFeedback =
-        `Đã nhập ${parsed.items.length} mã từ file (${added} mã mới, ${updated} mã cập nhật). ` +
-        `Khoán ${this.monthLabel.toLowerCase()} = phân bổ 2 tháng ÷ 2 (làm tròn).` +
-        (missing.length ? ` Shop không có trong file phân bổ: ${missing.join(", ")} — không đặt khoán.` : "") +
-        " Kiểm tra rồi bấm \"Lưu thiết lập\" để áp dụng.";
-      this.cdr.markForCheck();
-    } catch {
-      this.draftFeedback = "Đọc file Excel thất bại — kiểm tra lại định dạng file (.xlsx).";
-      this.cdr.markForCheck();
+      this.importStatus = {
+        kind: "ok",
+        text:
+          `Đã nhập xong file "${preview.fileName}": ${parsed.items.length} mã (${added} mã mới, ${updated} mã cập nhật). ` +
+          `Khoán ${this.monthLabel.toLowerCase()} = phân bổ 2 tháng ÷ 2 (làm tròn), đã điền vào bảng bên dưới.` +
+          (preview.missingShops.length ? ` Shop không có trong file phân bổ: ${preview.missingShops.join(", ")} — không đặt khoán.` : "") +
+          " Kiểm tra rồi bấm \"Lưu thiết lập\" để áp dụng.",
+      };
     }
+    this.importPreview = null;
+    this.cdr.markForCheck();
+  }
+
+  /** Hủy nhập: đóng modal xem trước, bảng nhập liệu giữ nguyên. */
+  cancelImportPreview(): void {
+    if (this.importPreview) {
+      this.importStatus = { kind: "info", text: `Đã hủy nhập file "${this.importPreview.fileName}" — bảng nhập liệu giữ nguyên.` };
+    }
+    this.importPreview = null;
+    this.cdr.markForCheck();
+  }
+
+  /** Nhãn NT của một mã shop trong modal xem trước nhập Excel. */
+  previewShopLabel(shopCode: string): string {
+    const digits = shopCode.replace(/\D/g, "");
+    return digits ? `NT${parseInt(digits, 10)}` : shopCode;
+  }
+
+  previewItemTotal(item: AllocationImportItem): number {
+    return Object.values(item.shopQuotas).reduce((sum, value) => sum + (value || 0), 0);
+  }
+
+  previewShopTotal(shopCode: string): number {
+    return (this.importPreview?.items ?? []).reduce((sum, item) => sum + (item.shopQuotas[shopCode] || 0), 0);
+  }
+
+  previewGrandTotal(): number {
+    return (this.importPreview?.items ?? []).reduce((sum, item) => sum + this.previewItemTotal(item), 0);
   }
 
   removeDraftItem(item: DraftItem): void {
@@ -962,6 +1097,7 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
       this.configItems = items;
       const now = new Date();
       this.configSavedText = `Đã lưu thiết lập lúc ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}.`;
+      this.importStatus = null;
       this.rebuildView();
       // Mã mới thêm mà chưa từng bán sẽ chưa có tên — tra bổ sung ở danh mục rồi dựng lại bảng.
       void this.fillMissingNames().then(() => this.rebuildView());

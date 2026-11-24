@@ -416,6 +416,7 @@ function extractRows(response: unknown): RawRecord[] {
                 ({{ importPreview.addedCount }} mã mới, {{ importPreview.updatedCount }} mã đã có sẽ cập nhật).
                 Khoán {{ monthLabel.toLowerCase() }} = phân bổ 2 tháng ÷ 2 (làm tròn).
                 Tổng khoán tháng của cả file: <strong>{{ previewGrandTotal() }}</strong>.
+                Số nào sai thì sửa thẳng trong ô — tổng từng dòng và từng shop tự cập nhật — rồi mới bấm áp dụng.
               </p>
               <p *ngIf="importPreview.missingShops.length" class="text-warning small">
                 Các shop không có trong file phân bổ (không đặt khoán): {{ importPreview.missingShops.join(", ") }}.
@@ -436,9 +437,11 @@ function extractRows(response: unknown): RawRecord[] {
                     <tr *ngFor="let item of importPreview.items">
                       <td class="fw-bold">{{ item.code }}</td>
                       <td class="text-secondary">{{ item.name || nameOf(item.code) || "—" }}</td>
-                      <td>{{ item.unit || "—" }}</td>
-                      <td>{{ item.packSize }}</td>
-                      <td *ngFor="let shopCode of importPreview.shopCodes" class="text-end">{{ item.shopQuotas[shopCode] ?? "—" }}</td>
+                      <td><input type="text" class="form-control form-control-sm" style="min-width: 64px" [(ngModel)]="item.unit" /></td>
+                      <td><input type="number" class="form-control form-control-sm" style="min-width: 70px" min="1" [(ngModel)]="item.packSize" /></td>
+                      <td *ngFor="let shopCode of importPreview.shopCodes">
+                        <input type="number" class="form-control form-control-sm text-end" style="min-width: 76px" min="0" placeholder="—" [(ngModel)]="item.shopQuotas[shopCode]" />
+                      </td>
                       <td class="text-end fw-bold">{{ previewItemTotal(item) }}</td>
                     </tr>
                   </tbody>

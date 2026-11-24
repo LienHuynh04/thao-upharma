@@ -134,6 +134,143 @@ function normalizeCode(value: unknown): string {
   return String(value ?? "").trim().toUpperCase();
 }
 
+interface AllocationImportItem {
+  code: string;
+  unit: string;
+  packSize: number;
+  shopQuotas: Record<string, number>;
+}
+
+interface AllocationImport {
+  items: AllocationImportItem[];
+  shopCodes: string[];
+}
+
+/** Khóa so khớp tên sản phẩm giữa các sheet: chữ thường, bỏ dấu tiếng Việt, gộp khoảng trắng. */
+function normalizeNameKey(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Đoán quy cách (số đơn vị lẻ trong 1 ĐVT khoán) từ tên sản phẩm: H10x10 = 100, H2x7 = 14, H4 Box x 5 = 20, H10 = 10, L60 = 60. */
+function derivePackSizeFromName(name: string): number {
+  const upper = String(name ?? "").toUpperCase();
+  const times = upper.match(/H\s*(\d+)\s*(?:BOX\s*)?X\s*(\d+)/);
+  if (times) {
+    return Number(times[1]) * Number(times[2]);
+  }
+  const box = upper.match(/H\s*(\d+)\b/);
+  if (box) {
+    return Number(box[1]);
+  }
+  const bottle = upper.match(/L\s*(\d+)\b/);
+  if (bottle) {
+    return Number(bottle[1]);
+  }
+  return 1;
+}
+
+function sheetToRows(xlsx: any, sheet: any): unknown[][] {
+  return xlsx.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null }) as unknown[][];
+}
+
+/** Tìm hàng tiêu đề (trong 8 hàng đầu) có ô chứa đoạn chữ đã chuẩn hóa cho trước. */
+function findHeaderRow(rows: unknown[][], markerKey: string): number {
+  for (let i = 0; i < Math.min(rows.length, 8); i++) {
+    const row = rows[i] ?? [];
+    if (row.some((cell) => normalizeNameKey(cell).includes(markerKey))) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Đọc workbook Excel phân bổ sản lượng: sheet phân bổ có cột "Mã SP", "ĐVT target"
+ * và các cột NT… chứa phân bổ 2 tháng của từng shop; khoán tháng = phân bổ ÷ 2 (làm tròn).
+ * Quy đổi ưu tiên: sheet quy đổi (cột "Quy cách" theo tên SP) -> cấu hình hiện tại -> đoán từ tên SP -> 1.
+ */
+function parseAllocationWorkbook(xlsx: any, workbook: any, currentPackSizes: Map<string, number>): AllocationImport | null {
+  const packByName = new Map<string, number>();
+  let allocRows: unknown[][] | null = null;
+  let allocHeaderIdx = -1;
+  for (const sheetName of workbook.SheetNames as string[]) {
+    const rows = sheetToRows(xlsx, workbook.Sheets[sheetName]);
+    const targetHeaderIdx = findHeaderRow(rows, "quy cach");
+    if (targetHeaderIdx >= 0) {
+      const headerKeys = (rows[targetHeaderIdx] ?? []).map((cell) => normalizeNameKey(cell));
+      const nameCol = headerKeys.findIndex((h) => h.includes("ten san pham") || h.includes("ten sp"));
+      const packCol = headerKeys.findIndex((h) => h.includes("quy cach"));
+      if (nameCol >= 0 && packCol >= 0) {
+        for (let r = targetHeaderIdx + 1; r < rows.length; r++) {
+          const nameKey = normalizeNameKey(rows[r]?.[nameCol]);
+          const pack = Number(rows[r]?.[packCol]);
+          if (nameKey && Number.isFinite(pack) && pack > 0) {
+            packByName.set(nameKey, pack);
+          }
+        }
+      }
+    }
+    if (!allocRows) {
+      const headerIdx = findHeaderRow(rows, "ma sp");
+      if (headerIdx >= 0) {
+        allocRows = rows;
+        allocHeaderIdx = headerIdx;
+      }
+    }
+  }
+  if (!allocRows || allocHeaderIdx < 0) {
+    return null;
+  }
+  const headerRaw = (allocRows[allocHeaderIdx] ?? []).map((cell) => String(cell ?? "").trim());
+  const headerKeys = headerRaw.map((cell) => normalizeNameKey(cell));
+  const codeCol = headerKeys.findIndex((h) => h === "ma sp");
+  const nameCol = headerKeys.findIndex((h) => h === "ten sp" || h === "ten san pham");
+  const unitCol = headerKeys.findIndex((h) => h.includes("dvt"));
+  const shopCols: { col: number; shopCode: string }[] = [];
+  headerRaw.forEach((cell, col) => {
+    const match = cell.toUpperCase().match(/^NT\s*(\d+)$/);
+    if (match) {
+      shopCols.push({ col, shopCode: "SHOP" + match[1].padStart(4, "0") });
+    }
+  });
+  if (codeCol < 0 || !shopCols.length) {
+    return null;
+  }
+  const items: AllocationImportItem[] = [];
+  for (let r = allocHeaderIdx + 1; r < allocRows.length; r++) {
+    const row = allocRows[r] ?? [];
+    const code = normalizeCode(row[codeCol]);
+    if (!code) {
+      continue;
+    }
+    const name = nameCol >= 0 ? String(row[nameCol] ?? "") : "";
+    const unit = unitCol >= 0 ? String(row[unitCol] ?? "").trim() : "";
+    const shopQuotas: Record<string, number> = {};
+    for (const { col, shopCode } of shopCols) {
+      const twoMonths = Number(row[col]);
+      if (Number.isFinite(twoMonths) && twoMonths > 0) {
+        const monthly = Math.round(twoMonths / 2);
+        if (monthly > 0) {
+          shopQuotas[shopCode] = monthly;
+        }
+      }
+    }
+    const packSize =
+      packByName.get(normalizeNameKey(name)) ??
+      currentPackSizes.get(code) ??
+      derivePackSizeFromName(name);
+    items.push({ code, unit, packSize: Math.max(1, Math.round(packSize) || 1), shopQuotas });
+  }
+  return { items, shopCodes: shopCols.map((entry) => entry.shopCode) };
+}
+
 function pickField(row: RawRecord, keys: string[]): unknown {
   for (const key of keys) {
     const value = row[key];
@@ -294,6 +431,15 @@ function extractRows(response: unknown): RawRecord[] {
           <h3 class="card-title">Nhập liệu — mã sản phẩm &amp; số khoán tháng này</h3>
         </div>
         <div class="card-body">
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-md-7">
+              <label class="form-label">Nhập khoán từ file Excel phân bổ (sheet có cột Mã SP, ĐVT target và các cột NT…)</label>
+              <input type="file" class="form-control" accept=".xlsx,.xls" (change)="onAllocationFile($event)" />
+            </div>
+            <div class="col-md-5">
+              <span class="text-secondary small">Khoán tháng hiện tại = phân bổ 2 tháng của từng shop ÷ 2 (làm tròn) — đúng cách file chia theo từng tháng. Quy đổi lấy từ sheet tARGET trong file nếu có. Nhập xong kiểm tra rồi bấm "Lưu thiết lập" để áp dụng.</span>
+            </div>
+          </div>
           <div class="row g-2 align-items-end mb-3">
             <div class="col-md-7">
               <label class="form-label">Thêm mã sản phẩm (mỗi mã một dòng, hoặc cách nhau bằng dấu phẩy)</label>
@@ -701,6 +847,77 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
       : "Chưa nhập mã nào.";
     this.newCodesText = "";
     this.cdr.markForCheck();
+  }
+
+  /** Nhập khoán từ file Excel phân bổ sản lượng (định dạng sheet PHÂN BỔ + tARGET như file quý). */
+  async onAllocationFile(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) {
+      return;
+    }
+    try {
+      const xlsx = await import("xlsx");
+      const workbook = xlsx.read(await file.arrayBuffer(), { type: "array" });
+      const currentPackSizes = new Map<string, number>();
+      for (const item of [...this.configItems, ...this.draftItems]) {
+        const pack = Number(item.packSize);
+        if (Number.isFinite(pack) && pack > 0) {
+          currentPackSizes.set(item.code, pack);
+        }
+      }
+      const parsed = parseAllocationWorkbook(xlsx, workbook, currentPackSizes);
+      if (!parsed || !parsed.items.length) {
+        this.draftFeedback =
+          "Không đọc được file: cần một sheet có cột \"Mã SP\", \"ĐVT target\" và các cột NT… như file phân bổ sản lượng.";
+        this.cdr.markForCheck();
+        return;
+      }
+      const byCode = new Map(this.draftItems.map((item) => [item.code, item]));
+      let added = 0;
+      let updated = 0;
+      for (const imported of parsed.items) {
+        const shopQuotas: Record<string, number | null> = {};
+        for (const shop of this.shops) {
+          shopQuotas[shop.ShopCode] = imported.shopQuotas[shop.ShopCode] ?? null;
+        }
+        for (const [shopCode, value] of Object.entries(imported.shopQuotas)) {
+          if (!(shopCode in shopQuotas)) {
+            shopQuotas[shopCode] = value;
+          }
+        }
+        const existing = byCode.get(imported.code);
+        if (existing) {
+          existing.unit = imported.unit || existing.unit;
+          existing.packSize = imported.packSize;
+          existing.shopQuotas = shopQuotas;
+          updated++;
+        } else {
+          const item: DraftItem = {
+            code: imported.code,
+            quota: 0,
+            shopQuotas,
+            unit: imported.unit,
+            packSize: imported.packSize,
+          };
+          this.draftItems.push(item);
+          byCode.set(imported.code, item);
+          added++;
+        }
+      }
+      const fileShops = new Set(parsed.shopCodes);
+      const missing = this.shops.filter((shop) => !fileShops.has(shop.ShopCode)).map((shop) => shop.ShopCode);
+      this.draftFeedback =
+        `Đã nhập ${parsed.items.length} mã từ file (${added} mã mới, ${updated} mã cập nhật). ` +
+        `Khoán ${this.monthLabel.toLowerCase()} = phân bổ 2 tháng ÷ 2 (làm tròn).` +
+        (missing.length ? ` Shop không có trong file phân bổ: ${missing.join(", ")} — không đặt khoán.` : "") +
+        " Kiểm tra rồi bấm \"Lưu thiết lập\" để áp dụng.";
+      this.cdr.markForCheck();
+    } catch {
+      this.draftFeedback = "Đọc file Excel thất bại — kiểm tra lại định dạng file (.xlsx).";
+      this.cdr.markForCheck();
+    }
   }
 
   removeDraftItem(item: DraftItem): void {

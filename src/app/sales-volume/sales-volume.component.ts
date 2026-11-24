@@ -1,0 +1,1508 @@
+import { CommonModule } from "@angular/common";
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnDestroy, OnInit, inject } from "@angular/core";
+import { FormsModule } from "@angular/forms";
+import { parseNumericValue } from "../inventory-utils";
+import { UpharmaService } from "../upharma.service";
+
+/**
+ * Trang "Hàng sản lượng": theo dõi một danh sách mã sản phẩm trọng điểm
+ * (cấu hình lưu trên Firebase) so với SỐ KHOÁN của tháng hiện tại.
+ *
+ * Nguồn số liệu: node `sales_report` đã đồng bộ sẵn trên Firebase (đơn bán
+ * hàng từ đầu tháng đến hiện tại, cập nhật hằng giờ) — đọc qua
+ * GetReportSalesByShop với _useFirebaseCache giống hệt trang FEFO và bộ
+ * báo cáo, KHÔNG gọi API trực tiếp nên không dính lỗi treo API.
+ *
+ * Cấu hình mã + khoán lưu ở `hidden_products/volume_products` — cây duy
+ * nhất RTDB rules cho ghi công khai (cùng chỗ với shop_visibility).
+ */
+
+interface VolumeProductConfig {
+  code: string;
+  /** Số khoán mặc định cho mọi shop. */
+  quota: number;
+  /** Số khoán riêng theo shop (ưu tiên hơn khoán mặc định). */
+  shopQuotas?: Record<string, number>;
+  /** Đơn vị tính của số khoán (Hộp, Lọ…) — khớp với cột ĐVT target của bảng khoán. */
+  unit?: string;
+  /**
+   * Quy đổi: bao nhiêu đơn vị bán lẻ trên hóa đơn (viên, ống) bằng 1 đơn vị
+   * khoán. Hóa đơn bán lẻ theo viên/ống trong khi khoán tính theo hộp/lọ —
+   * ví dụ H10x10 = 100, H2x7 = 14, L60 = 60. Để 1 nếu bán đúng đơn vị khoán.
+   */
+  packSize?: number;
+}
+
+interface VolumeConfig {
+  items: VolumeProductConfig[];
+  updatedAt?: number;
+}
+
+interface EmpAgg {
+  /** Số lượng gộp theo từng đơn vị bán ghi trên hóa đơn (Viên/Ống/Lọ/Hộp…). */
+  units: Map<string, number>;
+  amount: number;
+}
+
+interface ShopAgg {
+  units: Map<string, number>;
+  amount: number;
+  employees: Map<string, EmpAgg>;
+}
+
+/** Dạng JSON của một bản tổng hợp (cache trang / node tính sẵn trên Firebase). */
+type AggRecord = Record<
+  string,
+  Record<string, { units: Record<string, number>; amount: number; employees: Record<string, { units: Record<string, number>; amount: number }> }>
+>;
+
+interface CalcLine {
+  unit: string;
+  raw: number;
+  converted: number;
+  divided: boolean;
+}
+
+interface ShopCalc {
+  shopCode: string;
+  shopName: string;
+  quota: number;
+  lines: CalcLine[];
+  total: number;
+  pct: number | null;
+  remaining: number;
+  over: number;
+  employees: { name: string; summary: string; qty: number; pct: number | null }[];
+}
+
+function addUnit(map: Map<string, number>, unit: string, qty: number): void {
+  map.set(unit, (map.get(unit) || 0) + qty);
+}
+
+interface EmpView {
+  name: string;
+  qty: number;
+  amount: number;
+  /** % số khoán của shop mà nhân viên này đã bán được. */
+  pctQuota: number | null;
+  /** % cơ cấu trong tổng bán của shop. */
+  share: number;
+}
+
+interface ShopView {
+  shopCode: string;
+  shopName: string;
+  qty: number;
+  amount: number;
+  quota: number;
+  pct: number | null;
+  remaining: number;
+  over: number;
+  employees: EmpView[];
+}
+
+interface EmployeeRow {
+  product: ProductView;
+  /** Ô của nhà thuốc đang chọn trong tab Nhân viên. */
+  shop: ShopView;
+  /** Thực đạt + tỉ trọng của từng nhân viên, khớp thứ tự với employeeNames. */
+  cells: { qty: number; pctQuota: number | null }[];
+}
+
+interface ProductView {
+  code: string;
+  name: string;
+  unit: string;
+  totalQty: number;
+  totalAmount: number;
+  totalQuota: number;
+  pct: number | null;
+  remaining: number;
+  over: number;
+  status: "done" | "open" | "noquota";
+  shops: ShopView[];
+}
+
+interface DraftItem {
+  code: string;
+  quota: number | null;
+  shopQuotas: Record<string, number | null>;
+  unit: string;
+  packSize: number | null;
+}
+
+type RawRecord = Record<string, unknown>;
+
+const CONFIG_URL = "https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app/hidden_products/volume_products.json";
+const CATALOG_URL = "https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app/product_catalog.json";
+const PRECOMPUTED_AGG_URL = "https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app/hidden_products/volume_sales_agg.json";
+
+function normalizeCode(value: unknown): string {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+interface AllocationImportItem {
+  code: string;
+  unit: string;
+  packSize: number;
+  shopQuotas: Record<string, number>;
+}
+
+interface AllocationImport {
+  items: AllocationImportItem[];
+  shopCodes: string[];
+}
+
+/** Khóa so khớp tên sản phẩm giữa các sheet: chữ thường, bỏ dấu tiếng Việt, gộp khoảng trắng. */
+function normalizeNameKey(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Đoán quy cách (số đơn vị lẻ trong 1 ĐVT khoán) từ tên sản phẩm: H10x10 = 100, H2x7 = 14, H4 Box x 5 = 20, H10 = 10, L60 = 60. */
+function derivePackSizeFromName(name: string): number {
+  const upper = String(name ?? "").toUpperCase();
+  const times = upper.match(/H\s*(\d+)\s*(?:BOX\s*)?X\s*(\d+)/);
+  if (times) {
+    return Number(times[1]) * Number(times[2]);
+  }
+  const box = upper.match(/H\s*(\d+)\b/);
+  if (box) {
+    return Number(box[1]);
+  }
+  const bottle = upper.match(/L\s*(\d+)\b/);
+  if (bottle) {
+    return Number(bottle[1]);
+  }
+  return 1;
+}
+
+function sheetToRows(xlsx: any, sheet: any): unknown[][] {
+  return xlsx.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null }) as unknown[][];
+}
+
+/** Tìm hàng tiêu đề (trong 8 hàng đầu) có ô chứa đoạn chữ đã chuẩn hóa cho trước. */
+function findHeaderRow(rows: unknown[][], markerKey: string): number {
+  for (let i = 0; i < Math.min(rows.length, 8); i++) {
+    const row = rows[i] ?? [];
+    if (row.some((cell) => normalizeNameKey(cell).includes(markerKey))) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Đọc workbook Excel phân bổ sản lượng: sheet phân bổ có cột "Mã SP", "ĐVT target"
+ * và các cột NT… chứa phân bổ 2 tháng của từng shop; khoán tháng = phân bổ ÷ 2 (làm tròn).
+ * Quy đổi ưu tiên: sheet quy đổi (cột "Quy cách" theo tên SP) -> cấu hình hiện tại -> đoán từ tên SP -> 1.
+ */
+function parseAllocationWorkbook(xlsx: any, workbook: any, currentPackSizes: Map<string, number>): AllocationImport | null {
+  const packByName = new Map<string, number>();
+  let allocRows: unknown[][] | null = null;
+  let allocHeaderIdx = -1;
+  for (const sheetName of workbook.SheetNames as string[]) {
+    const rows = sheetToRows(xlsx, workbook.Sheets[sheetName]);
+    const targetHeaderIdx = findHeaderRow(rows, "quy cach");
+    if (targetHeaderIdx >= 0) {
+      const headerKeys = (rows[targetHeaderIdx] ?? []).map((cell) => normalizeNameKey(cell));
+      const nameCol = headerKeys.findIndex((h) => h.includes("ten san pham") || h.includes("ten sp"));
+      const packCol = headerKeys.findIndex((h) => h.includes("quy cach"));
+      if (nameCol >= 0 && packCol >= 0) {
+        for (let r = targetHeaderIdx + 1; r < rows.length; r++) {
+          const nameKey = normalizeNameKey(rows[r]?.[nameCol]);
+          const pack = Number(rows[r]?.[packCol]);
+          if (nameKey && Number.isFinite(pack) && pack > 0) {
+            packByName.set(nameKey, pack);
+          }
+        }
+      }
+    }
+    if (!allocRows) {
+      const headerIdx = findHeaderRow(rows, "ma sp");
+      if (headerIdx >= 0) {
+        allocRows = rows;
+        allocHeaderIdx = headerIdx;
+      }
+    }
+  }
+  if (!allocRows || allocHeaderIdx < 0) {
+    return null;
+  }
+  const headerRaw = (allocRows[allocHeaderIdx] ?? []).map((cell) => String(cell ?? "").trim());
+  const headerKeys = headerRaw.map((cell) => normalizeNameKey(cell));
+  const codeCol = headerKeys.findIndex((h) => h === "ma sp");
+  const nameCol = headerKeys.findIndex((h) => h === "ten sp" || h === "ten san pham");
+  const unitCol = headerKeys.findIndex((h) => h.includes("dvt"));
+  const shopCols: { col: number; shopCode: string }[] = [];
+  headerRaw.forEach((cell, col) => {
+    const match = cell.toUpperCase().match(/^NT\s*(\d+)$/);
+    if (match) {
+      shopCols.push({ col, shopCode: "SHOP" + match[1].padStart(4, "0") });
+    }
+  });
+  if (codeCol < 0 || !shopCols.length) {
+    return null;
+  }
+  const items: AllocationImportItem[] = [];
+  for (let r = allocHeaderIdx + 1; r < allocRows.length; r++) {
+    const row = allocRows[r] ?? [];
+    const code = normalizeCode(row[codeCol]);
+    if (!code) {
+      continue;
+    }
+    const name = nameCol >= 0 ? String(row[nameCol] ?? "") : "";
+    const unit = unitCol >= 0 ? String(row[unitCol] ?? "").trim() : "";
+    const shopQuotas: Record<string, number> = {};
+    for (const { col, shopCode } of shopCols) {
+      const twoMonths = Number(row[col]);
+      if (Number.isFinite(twoMonths) && twoMonths > 0) {
+        const monthly = Math.round(twoMonths / 2);
+        if (monthly > 0) {
+          shopQuotas[shopCode] = monthly;
+        }
+      }
+    }
+    const packSize =
+      packByName.get(normalizeNameKey(name)) ??
+      currentPackSizes.get(code) ??
+      derivePackSizeFromName(name);
+    items.push({ code, unit, packSize: Math.max(1, Math.round(packSize) || 1), shopQuotas });
+  }
+  return { items, shopCodes: shopCols.map((entry) => entry.shopCode) };
+}
+
+function pickField(row: RawRecord, keys: string[]): unknown {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/** Bóc mảng dòng đơn hàng khỏi envelope trả về — cùng quy ước với report-generator. */
+function extractRows(response: unknown): RawRecord[] {
+  const preferredKeys = ["SalesInvoiceLst", "ReportSalesLst", "SalesReportLst", "Data", "data", "DataLst", "Rows", "rows", "Table", "result"];
+  const findRows = (value: unknown): RawRecord[] => {
+    if (Array.isArray(value)) {
+      return value as RawRecord[];
+    }
+    if (!value || typeof value !== "object") {
+      return [];
+    }
+    const record = value as RawRecord;
+    for (const key of preferredKeys) {
+      if (Array.isArray(record[key])) {
+        return record[key] as RawRecord[];
+      }
+    }
+    for (const child of Object.values(record)) {
+      const rows = findRows(child);
+      if (rows.length > 0) {
+        return rows;
+      }
+    }
+    return [];
+  };
+  return findRows(response);
+}
+
+@Component({
+  selector: "app-sales-volume",
+  standalone: true,
+  imports: [CommonModule, FormsModule],
+  styles: [
+    ":host .table thead th { background: #0d472b !important; color: #ffffff !important; text-align: center; font-weight: 600; }",
+    ":host .table thead th .text-secondary { color: rgba(255, 255, 255, 0.78) !important; }",
+    ":host .table thead tr:last-child th { white-space: nowrap; }",
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div class="container-xl py-3">
+      <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+        <h2 class="page-title mb-0">Hàng sản lượng</h2>
+        <span class="badge bg-blue-lt text-blue">{{ monthLabel }}</span>
+        <span class="text-secondary small">Đã qua {{ dayOfMonth }}/{{ daysInMonth }} ngày ({{ monthPct }}% tháng)</span>
+        <div class="ms-auto d-flex gap-2">
+          <button type="button" class="btn btn-outline-primary" (click)="loadData(true)" [disabled]="loading">
+            <i class="ti ti-refresh me-1"></i>Tải lại
+          </button>
+          <button type="button" class="btn btn-primary" (click)="toggleSettings()" [disabled]="loading">
+            <i class="ti ti-settings me-1"></i>Thiết lập mã &amp; khoán
+          </button>
+        </div>
+      </div>
+      <div class="text-secondary small mb-3">
+        Nguồn: đơn bán hàng đồng bộ trên Firebase (từ đầu tháng đến hiện tại, cập nhật hằng giờ).
+        <span *ngIf="loadedAtText">Dữ liệu lúc {{ loadedAtText }}.</span>
+        <span *ngIf="loading && (products.length || employeeRows.length)" class="text-primary">Đang cập nhật dữ liệu mới…</span>
+      </div>
+
+      <div *ngIf="loading && !products.length && !employeeRows.length" class="alert alert-info d-flex align-items-center gap-2 py-2" role="alert">
+        <span class="spinner-border spinner-border-sm"></span>
+        <span>{{ progressText || "Đang tải dữ liệu bán hàng…" }}</span>
+      </div>
+      <div *ngIf="errorText" class="alert alert-danger py-2" role="alert">{{ errorText }}</div>
+      <div *ngIf="!loading && failedShops.length" class="alert alert-warning py-2" role="alert">
+        Chưa tải được dữ liệu của: <strong>{{ failedShops.join(", ") }}</strong> — tổng số bên dưới chưa gồm các shop này.
+        <button type="button" class="btn btn-sm btn-outline-warning ms-2" (click)="loadData(true)">Thử lại</button>
+      </div>
+
+      <!-- Thiết lập -->
+      <!-- Modal chi tiết phép tính -->
+      <div *ngIf="detailProduct && detailItem" class="modal modal-blur fade show d-block" tabindex="-1" (click)="closeDetail()">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" (click)="$event.stopPropagation()">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ detailProduct.code }} — {{ detailProduct.name }}</h5>
+              <button type="button" class="btn-close" (click)="closeDetail()" aria-label="Đóng"></button>
+            </div>
+            <div class="modal-body">
+              <p class="text-secondary small">
+                Đơn vị khoán: <strong>{{ detailItem.unit }}</strong>
+                <span *ngIf="detailItem.packSize && detailItem.packSize > 1"> · Quy đổi: 1 {{ detailItem.unit }} = {{ detailItem.packSize }} đơn vị lẻ — số bán lẻ (viên/ống) chia cho {{ detailItem.packSize }}, số bán đúng đơn vị khoán tính nguyên.</span>
+                <span *ngIf="!detailItem.packSize || detailItem.packSize <= 1"> · Mã này bán đúng đơn vị khoán nên tính nguyên, không quy đổi.</span>
+              </p>
+              <div *ngFor="let calc of detailCalcs" class="mb-4">
+                <h6 class="mb-2">{{ shopLabel(calc.shopCode) }} — {{ shortShopName(calc.shopName) }} <span class="text-secondary fw-normal">· Số khoán: {{ calc.quota > 0 ? fmtQty(calc.quota) + " " + detailItem.unit : "chưa đặt" }}</span></h6>
+                <ul class="list-unstyled mb-2">
+                  <li *ngFor="let line of calc.lines" class="py-1 border-bottom">
+                    <span *ngIf="line.divided">Bán lẻ: <strong>{{ fmtQty(line.raw) }} {{ line.unit }}</strong> ÷ {{ detailItem.packSize }} = <strong>{{ fmtQty(line.converted) }} {{ detailItem.unit }}</strong></span>
+                    <span *ngIf="!line.divided">Bán nguyên: <strong>{{ fmtQty(line.raw) }} {{ line.unit }}</strong> = <strong>{{ fmtQty(line.converted) }} {{ detailItem.unit }}</strong></span>
+                  </li>
+                  <li *ngIf="!calc.lines.length" class="py-1 border-bottom text-secondary">Chưa bán được gì trong tháng này.</li>
+                  <li class="py-2">
+                    Thực đạt: <strong>{{ fmtQty(calc.total) }} {{ detailItem.unit }}</strong>
+                    <span *ngIf="calc.quota > 0"> trên khoán {{ fmtQty(calc.quota) }} {{ detailItem.unit }} → đạt <strong>{{ fmtPct(calc.pct) }}</strong><span *ngIf="calc.remaining > 0" class="text-danger">, còn thiếu {{ fmtQty(calc.remaining) }} {{ detailItem.unit }}</span><span *ngIf="calc.remaining === 0" class="text-success">, đã đủ<span *ngIf="calc.over > 0"> (dư {{ fmtQty(calc.over) }})</span></span></span>
+                  </li>
+                </ul>
+                <div *ngIf="calc.employees.length">
+                  <div class="small text-secondary mb-1">Theo nhân viên:</div>
+                  <ul class="list-unstyled mb-0">
+                    <li *ngFor="let emp of calc.employees" class="py-1 border-bottom">
+                      <strong>{{ emp.name }}</strong>: bán {{ emp.summary }} → quy đổi <strong>{{ fmtQty(emp.qty) }} {{ detailItem.unit }}</strong><span *ngIf="emp.pct !== null" class="text-secondary"> ({{ fmtPct(emp.pct) }} khoán shop)</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" (click)="closeDetail()">Đóng</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div *ngIf="detailProduct" class="modal-backdrop fade show"></div>
+
+      <div *ngIf="configLoaded && !configItems.length && !loading && activeTab !== 'form'" class="card">
+        <div class="card-body text-center py-5">
+          <div class="fs-3 mb-2">Chưa có mã sản phẩm nào được theo dõi</div>
+          <p class="text-secondary">Bấm “Thiết lập mã &amp; khoán” để thêm các mã cần theo dõi sản lượng và đặt số khoán cho từng nhà thuốc.</p>
+          <button type="button" class="btn btn-primary" (click)="toggleSettings()">Mở thiết lập</button>
+        </div>
+      </div>
+
+      <!-- Hai tab: Nhà thuốc / Nhân viên, cùng một khung bảng như file Excel theo dõi khoán -->
+      <ul *ngIf="configLoaded" class="nav nav-tabs mb-2">
+        <li class="nav-item">
+          <button type="button" class="nav-link" [class.active]="activeTab === 'shops'" (click)="setTab('shops')">Nhà thuốc</button>
+        </li>
+        <li class="nav-item">
+          <button type="button" class="nav-link" [class.active]="activeTab === 'employees'" (click)="setTab('employees')">Nhân viên</button>
+        </li>
+        <li class="nav-item">
+          <button type="button" class="nav-link" [class.active]="activeTab === 'form'" (click)="setTab('form')">Nhập liệu</button>
+        </li>
+      </ul>
+      <p *ngIf="configLoaded && configItems.length" class="text-secondary small mb-3">
+        Tỉ trọng = thực đạt ÷ số khoán. Ở tab Nhân viên, tỉ trọng của nhân viên tính trên số khoán của nhà thuốc. Bấm vào một dòng sản phẩm để xem chi tiết phép tính. Dùng tab Nhập liệu để thêm mã sản phẩm và đặt số khoán.
+      </p>
+
+      <div
+        *ngIf="configLoaded && configItems.length && !loading && ((activeTab === 'shops' && !products.length) || (activeTab === 'employees' && !employeeRows.length))"
+        class="alert alert-secondary py-2"
+      >
+        Không có mã nào khớp bộ lọc hiện tại.
+      </div>
+
+      <div *ngIf="activeTab === 'form'" class="card mb-3">
+        <div class="card-header">
+          <h3 class="card-title">Nhập liệu — mã sản phẩm &amp; số khoán tháng này</h3>
+        </div>
+        <div class="card-body">
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-md-7">
+              <label class="form-label">Nhập khoán từ file Excel phân bổ (sheet có cột Mã SP, ĐVT target và các cột NT…)</label>
+              <input type="file" class="form-control" accept=".xlsx,.xls" (change)="onAllocationFile($event)" />
+            </div>
+            <div class="col-md-5">
+              <span class="text-secondary small">Khoán tháng hiện tại = phân bổ 2 tháng của từng shop ÷ 2 (làm tròn) — đúng cách file chia theo từng tháng. Quy đổi lấy từ sheet tARGET trong file nếu có. Nhập xong kiểm tra rồi bấm "Lưu thiết lập" để áp dụng.</span>
+            </div>
+          </div>
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-md-7">
+              <label class="form-label">Thêm mã sản phẩm (mỗi mã một dòng, hoặc cách nhau bằng dấu phẩy)</label>
+              <textarea class="form-control" rows="3" [(ngModel)]="newCodesText" placeholder="TP09890&#10;TC11682"></textarea>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Khoán mặc định / shop</label>
+              <input type="number" class="form-control" min="0" [(ngModel)]="newQuotaDefault" />
+            </div>
+            <div class="col-md-2">
+              <button type="button" class="btn btn-outline-primary w-100" (click)="addCodes()">Thêm mã</button>
+            </div>
+          </div>
+          <div *ngIf="draftFeedback" class="text-secondary small mb-2">{{ draftFeedback }}</div>
+
+          <div class="table-responsive" *ngIf="draftItems.length">
+            <table class="table table-vcenter table-sm mb-0">
+              <thead>
+                <tr>
+                  <th>Mã sản phẩm</th>
+                  <th>Tên sản phẩm</th>
+                  <th style="min-width: 110px">Khoán chung</th>
+                  <th style="min-width: 90px">ĐVT khoán</th>
+                  <th style="min-width: 110px">Quy đổi</th>
+                  <th *ngFor="let shop of shops" style="min-width: 100px">{{ shop.ShopCode }}</th>
+                  <th class="w-1"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let item of draftItems">
+                  <td class="fw-bold">{{ item.code }}</td>
+                  <td class="text-secondary">{{ nameOf(item.code) || "—" }}</td>
+                  <td><input type="number" class="form-control form-control-sm" min="0" [(ngModel)]="item.quota" /></td>
+                  <td><input type="text" class="form-control form-control-sm" placeholder="Hộp" [(ngModel)]="item.unit" /></td>
+                  <td><input type="number" class="form-control form-control-sm" min="1" [(ngModel)]="item.packSize" /></td>
+                  <td *ngFor="let shop of shops">
+                    <input
+                      type="number"
+                      class="form-control form-control-sm"
+                      min="0"
+                      [placeholder]="item.quota ?? 0"
+                      [(ngModel)]="item.shopQuotas[shop.ShopCode]"
+                    />
+                  </td>
+                  <td>
+                    <button type="button" class="btn btn-icon btn-sm btn-outline-danger" title="Bỏ theo dõi mã này" (click)="removeDraftItem(item)">
+                      <i class="ti ti-trash"></i>
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div *ngIf="!draftItems.length" class="text-secondary">Chưa có mã nào trong danh sách theo dõi.</div>
+
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+            <button type="button" class="btn btn-primary" (click)="saveConfig()" [disabled]="savingConfig">
+              <span *ngIf="savingConfig" class="spinner-border spinner-border-sm me-1"></span>Lưu thiết lập
+            </button>
+            <button type="button" class="btn btn-outline-secondary" (click)="cancelSettings()">Hủy thay đổi</button>
+            <span *ngIf="configSavedText" class="text-success small">{{ configSavedText }}</span>
+            <span class="text-secondary small ms-auto">Ô khoán theo shop để trống = dùng khoán chung. Khoán 0 = chưa đặt khoán. Quy đổi = số đơn vị bán lẻ (viên/ống) trong 1 ĐVT khoán — ví dụ H10x10 = 100, H2x7 = 14, L60 = 60; để 1 nếu bán đúng ĐVT khoán.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Thống kê nhanh -->
+      <div *ngIf="configLoaded && configItems.length" class="card mb-3">
+        <div class="card-body py-2">
+          <div class="d-flex flex-wrap gap-4">
+            <div><span class="text-secondary small d-block">Mã đang theo dõi</span><strong class="fs-4">{{ stats.tracked }}</strong></div>
+            <div><span class="text-secondary small d-block">Mã đã đạt khoán (toàn chuỗi)</span><strong class="fs-4 text-success">{{ stats.done }}</strong></div>
+            <div><span class="text-secondary small d-block">Tổng đã bán</span><strong class="fs-4">{{ fmtQty(stats.totalQty) }}</strong></div>
+            <div><span class="text-secondary small d-block">Tổng khoán</span><strong class="fs-4">{{ fmtQty(stats.totalQuota) }}</strong></div>
+            <div><span class="text-secondary small d-block">Còn phải bán thêm</span><strong class="fs-4 text-danger">{{ fmtQty(stats.totalRemaining) }}</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bộ lọc -->
+      <div *ngIf="configLoaded && configItems.length" class="row g-2 mb-3">
+        <div class="col-md-6">
+          <input type="text" class="form-control" placeholder="Tìm theo mã hoặc tên sản phẩm…" [(ngModel)]="searchText" (ngModelChange)="rebuildView()" />
+        </div>
+        <div class="col-md-6">
+          <select class="form-select" [(ngModel)]="statusFilter" (ngModelChange)="rebuildView()">
+            <option value="ALL">Tất cả trạng thái</option>
+            <option value="OPEN">Chưa đạt khoán</option>
+            <option value="DONE">Đã đạt khoán</option>
+            <option value="NOQUOTA">Chưa đặt khoán</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Tab Nhà thuốc: hàng = mã SP, mỗi nhà thuốc một cụm 3 cột Số khoán | Thực đạt | Tỉ trọng -->
+      <div *ngIf="activeTab === 'shops' && products.length" class="card">
+        <div class="table-responsive">
+          <table class="table table-bordered table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th rowspan="2" style="min-width: 200px; position: sticky; left: 0; z-index: 1">Mã SP</th>
+                <th *ngFor="let shop of shops" colspan="3">
+                  {{ shopLabel(shop.ShopCode) }}<span class="d-block small fw-normal text-secondary">{{ shortShopName(shop.ShopName) }}</span>
+                </th>
+                <th colspan="3">Toàn chuỗi</th>
+              </tr>
+              <tr>
+                <ng-container *ngFor="let shop of shops">
+                  <th>Số khoán</th>
+                  <th>Thực đạt</th>
+                  <th style="min-width: 96px">Tỉ trọng</th>
+                </ng-container>
+                <th>Số khoán</th>
+                <th>Thực đạt</th>
+                <th style="min-width: 96px">Tỉ trọng</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let product of products" (click)="openDetail(product)" style="cursor: pointer" title="Bấm để xem chi tiết phép tính">
+                <td style="position: sticky; left: 0; background: var(--upharma-card); z-index: 1">
+                  <span class="fw-bold">{{ product.code }}</span>
+                  <span *ngIf="product.status === 'done'" class="badge bg-success ms-1">Đã đạt</span>
+                  <span *ngIf="product.status === 'open'" class="badge bg-warning text-dark ms-1">Chưa đạt</span>
+                  <span *ngIf="product.status === 'noquota'" class="badge bg-secondary ms-1">Chưa đặt khoán</span>
+                  <span class="text-secondary d-block small">{{ product.name }}<span *ngIf="product.unit"> · ĐVT: {{ product.unit }}</span></span>
+                </td>
+                <ng-container *ngFor="let cell of product.shops">
+                  <td class="text-end">{{ cell.quota > 0 ? fmtQty(cell.quota) : "—" }}</td>
+                  <td class="text-end">
+                    <strong>{{ fmtQty(cell.qty) }}</strong>
+                    <span *ngIf="cell.remaining > 0" class="text-danger d-block small">còn thiếu {{ fmtQty(cell.remaining) }}</span>
+                    <span *ngIf="cell.quota > 0 && cell.remaining === 0" class="text-success d-block small">đủ<span *ngIf="cell.over > 0"> (+{{ fmtQty(cell.over) }})</span></span>
+                  </td>
+                  <td class="text-end">
+                    <strong>{{ fmtPct(cell.pct) }}</strong>
+                    <div *ngIf="cell.pct !== null" class="progress mt-1" style="height: 4px">
+                      <div
+                        class="progress-bar"
+                        [class.bg-success]="cell.pct >= 100"
+                        [class.bg-warning]="cell.pct >= 50 && cell.pct < 100"
+                        [class.bg-danger]="cell.pct < 50"
+                        [style.width.%]="barWidth(cell.pct)"
+                      ></div>
+                    </div>
+                  </td>
+                </ng-container>
+                <td class="text-end">{{ product.totalQuota > 0 ? fmtQty(product.totalQuota) : "—" }}</td>
+                <td class="text-end">
+                  <strong>{{ fmtQty(product.totalQty) }}</strong>
+                  <span *ngIf="product.remaining > 0" class="text-danger d-block small">còn thiếu {{ fmtQty(product.remaining) }}</span>
+                  <span *ngIf="product.totalQuota > 0 && product.remaining === 0" class="text-success d-block small">đủ<span *ngIf="product.over > 0"> (+{{ fmtQty(product.over) }})</span></span>
+                </td>
+                <td class="text-end">
+                  <strong>{{ fmtPct(product.pct) }}</strong>
+                  <div *ngIf="product.pct !== null" class="progress mt-1" style="height: 4px">
+                    <div
+                      class="progress-bar"
+                      [class.bg-success]="product.pct >= 100"
+                      [class.bg-warning]="product.pct >= 50 && product.pct < 100"
+                      [class.bg-danger]="product.pct < 50"
+                      [style.width.%]="barWidth(product.pct)"
+                    ></div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab Nhân viên: chọn nhà thuốc, hàng = mã SP, mỗi nhân viên một cụm Thực đạt | Tỉ trọng -->
+      <div *ngIf="activeTab === 'employees' && configLoaded && configItems.length">
+        <div class="btn-group mb-3">
+          <button
+            *ngFor="let shop of shops"
+            type="button"
+            class="btn btn-sm"
+            [class.btn-primary]="employeeShop === shop.ShopCode"
+            [class.btn-outline-secondary]="employeeShop !== shop.ShopCode"
+            (click)="setEmployeeShop(shop.ShopCode)"
+          >
+            {{ shopLabel(shop.ShopCode) }}
+          </button>
+        </div>
+        <div *ngIf="employeeRows.length" class="card">
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th rowspan="2" style="min-width: 200px; position: sticky; left: 0; z-index: 1">Mã SP</th>
+                  <th colspan="3">Cả shop {{ shopLabel(employeeShop) }}</th>
+                  <th *ngFor="let name of employeeNames" colspan="2">{{ name }}</th>
+                </tr>
+                <tr>
+                  <th>Số khoán</th>
+                  <th>Thực đạt</th>
+                  <th style="min-width: 96px">Tỉ trọng</th>
+                  <ng-container *ngFor="let name of employeeNames">
+                    <th>Thực đạt</th>
+                    <th style="min-width: 84px">Tỉ trọng</th>
+                  </ng-container>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let row of employeeRows" (click)="openDetail(row.product, employeeShop)" style="cursor: pointer" title="Bấm để xem chi tiết phép tính">
+                  <td style="position: sticky; left: 0; background: var(--upharma-card); z-index: 1">
+                    <span class="fw-bold">{{ row.product.code }}</span>
+                    <span class="text-secondary d-block small">{{ row.product.name }}<span *ngIf="row.product.unit"> · ĐVT: {{ row.product.unit }}</span></span>
+                  </td>
+                  <td class="text-end">{{ row.shop.quota > 0 ? fmtQty(row.shop.quota) : "—" }}</td>
+                  <td class="text-end">
+                    <strong>{{ fmtQty(row.shop.qty) }}</strong>
+                    <span *ngIf="row.shop.remaining > 0" class="text-danger d-block small">còn thiếu {{ fmtQty(row.shop.remaining) }}</span>
+                    <span *ngIf="row.shop.quota > 0 && row.shop.remaining === 0" class="text-success d-block small">đủ<span *ngIf="row.shop.over > 0"> (+{{ fmtQty(row.shop.over) }})</span></span>
+                  </td>
+                  <td class="text-end">
+                    <strong>{{ fmtPct(row.shop.pct) }}</strong>
+                    <div *ngIf="row.shop.pct !== null" class="progress mt-1" style="height: 4px">
+                      <div
+                        class="progress-bar"
+                        [class.bg-success]="row.shop.pct >= 100"
+                        [class.bg-warning]="row.shop.pct >= 50 && row.shop.pct < 100"
+                        [class.bg-danger]="row.shop.pct < 50"
+                        [style.width.%]="barWidth(row.shop.pct)"
+                      ></div>
+                    </div>
+                  </td>
+                  <ng-container *ngFor="let cell of row.cells">
+                    <td class="text-end">{{ cell.qty > 0 ? fmtQty(cell.qty) : "—" }}</td>
+                    <td class="text-end">{{ cell.pctQuota !== null ? fmtPct(cell.pctQuota) : "—" }}</td>
+                  </ng-container>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  `,
+})
+export class SalesVolumeComponent implements OnInit, OnDestroy {
+  private readonly upharmaService = inject(UpharmaService);
+  private readonly cdr = inject(ChangeDetectorRef);
+
+  shops: { ShopCode: string; ShopName: string }[] = [];
+  loading = false;
+  progressText = "";
+  errorText = "";
+  failedShops: string[] = [];
+  loadedAtText = "";
+
+  configLoaded = false;
+  configItems: VolumeProductConfig[] = [];
+
+  products: ProductView[] = [];
+  stats = { tracked: 0, done: 0, totalQty: 0, totalQuota: 0, totalRemaining: 0 };
+
+  searchText = "";
+  statusFilter = "ALL";
+  activeTab: "shops" | "employees" | "form" = "shops";
+  employeeShop = "";
+  employeeNames: string[] = [];
+  employeeRows: EmployeeRow[] = [];
+  detailProduct: ProductView | null = null;
+  detailItem: VolumeProductConfig | null = null;
+  detailCalcs: ShopCalc[] = [];
+
+  draftItems: DraftItem[] = [];
+  newCodesText = "";
+  newQuotaDefault: number | null = null;
+  draftFeedback = "";
+  savingConfig = false;
+  configSavedText = "";
+
+  monthLabel = "";
+  dayOfMonth = 0;
+  daysInMonth = 0;
+  monthPct = 0;
+
+  /** Tổng hợp bán hàng: code -> shopCode -> agg. Giữ riêng khỏi khoán để sửa khoán không cần tải lại. */
+  private salesAgg = new Map<string, Map<string, ShopAgg>>();
+  private productNames = new Map<string, string>();
+  private hiddenAt = 0;
+  private readonly onVisibility = () => {
+    if (document.visibilityState === "hidden") {
+      this.hiddenAt = Date.now();
+    } else if (this.hiddenAt && Date.now() - this.hiddenAt > 30 * 60 * 1000 && !this.loading) {
+      void this.loadData(false);
+    }
+  };
+
+  ngOnInit(): void {
+    const vnNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
+    this.dayOfMonth = vnNow.getDate();
+    this.daysInMonth = new Date(vnNow.getFullYear(), vnNow.getMonth() + 1, 0).getDate();
+    this.monthPct = Math.round((this.dayOfMonth / this.daysInMonth) * 100);
+    this.monthLabel = `Tháng ${vnNow.getMonth() + 1}/${vnNow.getFullYear()}`;
+    document.addEventListener("visibilitychange", this.onVisibility);
+    void this.init();
+  }
+
+  ngOnDestroy(): void {
+    document.removeEventListener("visibilitychange", this.onVisibility);
+  }
+
+  private async init(): Promise<void> {
+    try {
+      this.upharmaService.ensureLogin();
+      this.shops = this.upharmaService.getActiveShops().map((s) => ({ ShopCode: s.ShopCode, ShopName: s.ShopName }));
+    } catch (error) {
+      this.errorText = error instanceof Error ? error.message : String(error);
+      this.cdr.markForCheck();
+      return;
+    }
+    await Promise.all([this.loadConfig(), this.loadData(false)]);
+  }
+
+  // ── Cấu hình ──────────────────────────────────────────────────────────
+
+  private async loadConfig(): Promise<void> {
+    try {
+      const response = await fetch(CONFIG_URL);
+      const data = (await response.json()) as VolumeConfig | null;
+      const items = Array.isArray(data?.items) ? data!.items : [];
+      this.configItems = items
+        .map((item) => ({
+          code: normalizeCode(item?.code),
+          quota: Math.max(0, Math.round(Number(item?.quota) || 0)),
+          shopQuotas: this.sanitizeShopQuotas(item?.shopQuotas),
+          unit: String(item?.unit || "").trim(),
+          packSize: Math.max(1, Math.round(Number(item?.packSize) || 1)),
+        }))
+        .filter((item) => item.code);
+    } catch {
+      this.configItems = [];
+      this.errorText = "Chưa đọc được thiết lập mã & khoán trên Firebase — danh sách theo dõi đang trống.";
+    } finally {
+      this.configLoaded = true;
+      this.rebuildView();
+      this.cdr.markForCheck();
+    }
+  }
+
+  private sanitizeShopQuotas(raw: Record<string, number> | undefined): Record<string, number> {
+    const result: Record<string, number> = {};
+    if (raw && typeof raw === "object") {
+      for (const [shop, value] of Object.entries(raw)) {
+        const num = Number(value);
+        if (Number.isFinite(num) && num >= 0) {
+          result[shop] = Math.round(num);
+        }
+      }
+    }
+    return result;
+  }
+
+  toggleSettings(): void {
+    this.setTab("form");
+  }
+
+  private openDraft(): void {
+    this.draftItems = this.configItems.map((item) => ({
+      code: item.code,
+      quota: item.quota,
+      shopQuotas: Object.fromEntries(this.shops.map((shop) => [shop.ShopCode, item.shopQuotas?.[shop.ShopCode] ?? null])),
+      unit: item.unit || "",
+      packSize: item.packSize ?? 1,
+    }));
+    this.draftFeedback = "";
+    this.configSavedText = "";
+    this.newCodesText = "";
+    this.newQuotaDefault = null;
+  }
+
+  cancelSettings(): void {
+    this.activeTab = "shops";
+    this.cdr.markForCheck();
+  }
+
+  addCodes(): void {
+    const codes = this.newCodesText
+      .split(/[\s,;]+/)
+      .map((code) => normalizeCode(code))
+      .filter(Boolean);
+    const existing = new Set(this.draftItems.map((item) => item.code));
+    let added = 0;
+    let skipped = 0;
+    for (const code of codes) {
+      if (existing.has(code)) {
+        skipped++;
+        continue;
+      }
+      existing.add(code);
+      this.draftItems.push({
+        code,
+        quota: Math.max(0, Math.round(Number(this.newQuotaDefault) || 0)),
+        shopQuotas: Object.fromEntries(this.shops.map((shop) => [shop.ShopCode, null])),
+        unit: "",
+        packSize: 1,
+      });
+      added++;
+    }
+    this.draftFeedback = codes.length
+      ? `Đã thêm ${added} mã${skipped ? `, bỏ qua ${skipped} mã đã có trong danh sách` : ""}.`
+      : "Chưa nhập mã nào.";
+    this.newCodesText = "";
+    this.cdr.markForCheck();
+  }
+
+  /** Nhập khoán từ file Excel phân bổ sản lượng (định dạng sheet PHÂN BỔ + tARGET như file quý). */
+  async onAllocationFile(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) {
+      return;
+    }
+    try {
+      const xlsx = await import("xlsx");
+      const workbook = xlsx.read(await file.arrayBuffer(), { type: "array" });
+      const currentPackSizes = new Map<string, number>();
+      for (const item of [...this.configItems, ...this.draftItems]) {
+        const pack = Number(item.packSize);
+        if (Number.isFinite(pack) && pack > 0) {
+          currentPackSizes.set(item.code, pack);
+        }
+      }
+      const parsed = parseAllocationWorkbook(xlsx, workbook, currentPackSizes);
+      if (!parsed || !parsed.items.length) {
+        this.draftFeedback =
+          "Không đọc được file: cần một sheet có cột \"Mã SP\", \"ĐVT target\" và các cột NT… như file phân bổ sản lượng.";
+        this.cdr.markForCheck();
+        return;
+      }
+      const byCode = new Map(this.draftItems.map((item) => [item.code, item]));
+      let added = 0;
+      let updated = 0;
+      for (const imported of parsed.items) {
+        const shopQuotas: Record<string, number | null> = {};
+        for (const shop of this.shops) {
+          shopQuotas[shop.ShopCode] = imported.shopQuotas[shop.ShopCode] ?? null;
+        }
+        for (const [shopCode, value] of Object.entries(imported.shopQuotas)) {
+          if (!(shopCode in shopQuotas)) {
+            shopQuotas[shopCode] = value;
+          }
+        }
+        const existing = byCode.get(imported.code);
+        if (existing) {
+          existing.unit = imported.unit || existing.unit;
+          existing.packSize = imported.packSize;
+          existing.shopQuotas = shopQuotas;
+          updated++;
+        } else {
+          const item: DraftItem = {
+            code: imported.code,
+            quota: 0,
+            shopQuotas,
+            unit: imported.unit,
+            packSize: imported.packSize,
+          };
+          this.draftItems.push(item);
+          byCode.set(imported.code, item);
+          added++;
+        }
+      }
+      const fileShops = new Set(parsed.shopCodes);
+      const missing = this.shops.filter((shop) => !fileShops.has(shop.ShopCode)).map((shop) => shop.ShopCode);
+      this.draftFeedback =
+        `Đã nhập ${parsed.items.length} mã từ file (${added} mã mới, ${updated} mã cập nhật). ` +
+        `Khoán ${this.monthLabel.toLowerCase()} = phân bổ 2 tháng ÷ 2 (làm tròn).` +
+        (missing.length ? ` Shop không có trong file phân bổ: ${missing.join(", ")} — không đặt khoán.` : "") +
+        " Kiểm tra rồi bấm \"Lưu thiết lập\" để áp dụng.";
+      this.cdr.markForCheck();
+    } catch {
+      this.draftFeedback = "Đọc file Excel thất bại — kiểm tra lại định dạng file (.xlsx).";
+      this.cdr.markForCheck();
+    }
+  }
+
+  removeDraftItem(item: DraftItem): void {
+    const wasSaved = this.configItems.some((saved) => saved.code === item.code);
+    if (wasSaved && !window.confirm(`Bỏ theo dõi mã ${item.code}? Số khoán đã đặt cho mã này cũng sẽ bị xóa khi lưu.`)) {
+      return;
+    }
+    this.draftItems = this.draftItems.filter((draft) => draft !== item);
+    this.cdr.markForCheck();
+  }
+
+  async saveConfig(): Promise<void> {
+    this.savingConfig = true;
+    this.configSavedText = "";
+    this.cdr.markForCheck();
+    try {
+      const items: VolumeProductConfig[] = this.draftItems.map((item) => ({
+        code: item.code,
+        unit: item.unit.trim(),
+        packSize: Math.max(1, Math.round(Number(item.packSize) || 1)),
+        quota: Math.max(0, Math.round(Number(item.quota) || 0)),
+        shopQuotas: this.sanitizeShopQuotas(
+          Object.fromEntries(Object.entries(item.shopQuotas).filter(([, v]) => v !== null && v !== undefined)) as Record<string, number>,
+        ),
+      }));
+      const payload: VolumeConfig = { items, updatedAt: Date.now() };
+      const response = await fetch(CONFIG_URL, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        throw new Error(`Firebase trả lỗi ${response.status}`);
+      }
+      this.configItems = items;
+      const now = new Date();
+      this.configSavedText = `Đã lưu thiết lập lúc ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}.`;
+      this.rebuildView();
+      // Mã mới thêm mà chưa từng bán sẽ chưa có tên — tra bổ sung ở danh mục rồi dựng lại bảng.
+      void this.fillMissingNames().then(() => this.rebuildView());
+    } catch (error) {
+      this.draftFeedback = `Lưu thất bại: ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      this.savingConfig = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  nameOf(code: string): string {
+    return this.productNames.get(code) || "";
+  }
+
+  // ── Dữ liệu bán hàng ─────────────────────────────────────────────────
+
+  async loadData(forceRefresh: boolean): Promise<void> {
+    if (this.loading) {
+      return;
+    }
+    this.loading = true;
+    this.errorText = "";
+    this.failedShops = [];
+    this.progressText = "Đang tải dữ liệu bán hàng…";
+    // Có cache của tháng này thì dựng bảng ngay từ cache; số liệu mới tải xong sẽ thay vào.
+    if (this.applyAggCache()) {
+      this.rebuildView();
+    }
+    this.cdr.markForCheck();
+    try {
+      const session = this.upharmaService.ensureLogin();
+      // Ưu tiên bản tổng hợp tính sẵn (1 file duy nhất cho mọi nhà thuốc);
+      // chưa có hoặc khác tháng thì tải sales_report từng shop như cũ.
+      if (await this.fetchPrecomputedAgg()) {
+        this.failedShops = [];
+        await this.fillMissingNames();
+        this.rebuildView();
+        this.saveAggCache();
+        return;
+      }
+      // Tổng hợp mọi mã (không lọc theo cấu hình) để khi sửa thiết lập thêm mã
+      // mới, số liệu có sẵn ngay mà không phải tải lại dữ liệu bán hàng.
+      const agg = new Map<string, Map<string, ShopAgg>>();
+      const failed: string[] = [];
+      let done = 0;
+      const queue = [...this.shops];
+      const workers = Array.from({ length: Math.min(3, queue.length) }, async () => {
+        while (queue.length) {
+          const shop = queue.shift()!;
+          try {
+            const response = await fetch(`https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app/shops/${shop.ShopCode}/upharma_data/sales_report.json`);
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            const json = (await response.json()) as unknown;
+            const rows = extractRows(json);
+            for (const row of rows) {
+              const code = normalizeCode(pickField(row, ["ProductID", "ProductCode", "Product_ID", "MaSP", "ItemCode", "Code"]));
+              if (!code) {
+                continue;
+              }
+              const name = String(pickField(row, ["ProductName", "Product_Name", "TenSP", "Name"]) || "").trim();
+              if (name && !this.productNames.has(code)) {
+                this.productNames.set(code, name);
+              }
+              const qty = parseNumericValue(pickField(row, ["Quantity", "Qty", "SL", "SoLuong", "AmountQty"]) || 0);
+              const unitLabel = String(pickField(row, ["UnitOfMeasure", "Unit", "DonViTinh", "UnitName"]) || "").trim();
+              const amount = parseNumericValue(
+                pickField(row, ["AmountIncludingVAT", "AmountIncludingAdjust", "Amount", "TotalAmount", "ThanhTien"]) || 0,
+              );
+              const seller = String(pickField(row, ["SalesName", "EmployeeName", "StaffName", "SalesStaffName", "UserName", "FullName", "Employee", "EmpName", "SellerName"]) || "").trim() || "Không rõ người bán";
+              let byShop = agg.get(code);
+              if (!byShop) {
+                byShop = new Map();
+                agg.set(code, byShop);
+              }
+              let shopAgg = byShop.get(shop.ShopCode);
+              if (!shopAgg) {
+                shopAgg = { units: new Map(), amount: 0, employees: new Map() };
+                byShop.set(shop.ShopCode, shopAgg);
+              }
+              addUnit(shopAgg.units, unitLabel, qty);
+              shopAgg.amount += amount;
+              const emp = shopAgg.employees.get(seller) || { units: new Map(), amount: 0 };
+              addUnit(emp.units, unitLabel, qty);
+              emp.amount += amount;
+              shopAgg.employees.set(seller, emp);
+            }
+          } catch {
+            failed.push(shop.ShopCode);
+          } finally {
+            done++;
+            this.progressText = `Đang tải dữ liệu bán hàng… ${done}/${this.shops.length} nhà thuốc`;
+            this.cdr.markForCheck();
+          }
+        }
+      });
+      await Promise.all(workers);
+      this.salesAgg = agg;
+      this.failedShops = failed;
+      const now = new Date();
+      this.loadedAtText = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")} ${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+      await this.fillMissingNames();
+      this.rebuildView();
+      this.saveAggCache();
+    } catch (error) {
+      this.errorText = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.loading = false;
+      this.progressText = "";
+      this.cdr.markForCheck();
+    }
+  }
+
+  private static readonly AGG_CACHE_KEY = "hang-san-luong-agg-v1";
+
+  private monthKeyNow(): string {
+    const now = new Date();
+    return `${now.getFullYear()}-${now.getMonth() + 1}`;
+  }
+
+  /** Khôi phục phần tổng hợp đã lưu của tháng này để bảng hiện ngay khi mở trang. */
+  private applyAggCache(): boolean {
+    try {
+      const raw = localStorage.getItem(SalesVolumeComponent.AGG_CACHE_KEY);
+      if (!raw) {
+        return false;
+      }
+      const cache = JSON.parse(raw) as {
+        month?: string;
+        loadedAtText?: string;
+        names?: [string, string][];
+        agg?: Record<string, Record<string, { units: Record<string, number>; amount: number; employees: Record<string, { units: Record<string, number>; amount: number }> }>>;
+      };
+      if (!cache || cache.month !== this.monthKeyNow() || !cache.agg) {
+        return false;
+      }
+      this.salesAgg = this.hydrateAgg(cache.agg);
+      this.productNames = new Map(cache.names || []);
+      if (cache.loadedAtText) {
+        this.loadedAtText = cache.loadedAtText;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Dựng lại cấu trúc Map tổng hợp từ bản JSON (cache hoặc node tính sẵn). */
+  private hydrateAgg(aggRecord: AggRecord): Map<string, Map<string, ShopAgg>> {
+    const agg = new Map<string, Map<string, ShopAgg>>();
+    for (const [code, byShop] of Object.entries(aggRecord)) {
+      const shopMap = new Map<string, ShopAgg>();
+      for (const [shop, value] of Object.entries(byShop)) {
+        const employees = new Map<string, EmpAgg>();
+        for (const [name, emp] of Object.entries(value.employees || {})) {
+          employees.set(name, { units: new Map(Object.entries(emp.units || {})), amount: emp.amount || 0 });
+        }
+        shopMap.set(shop, { units: new Map(Object.entries(value.units || {})), amount: value.amount || 0, employees });
+      }
+      agg.set(code, shopMap);
+    }
+    return agg;
+  }
+
+  /**
+   * Đọc bản tổng hợp đã tính sẵn trên Firebase (script đồng bộ ghi mỗi 30 phút vào
+   * hidden_products/volume_sales_agg). Trả về true nếu dùng được — khi đó trang
+   * không phải tải sales_report của từng nhà thuốc nữa.
+   */
+  private async fetchPrecomputedAgg(): Promise<boolean> {
+    try {
+      const response = await fetch(PRECOMPUTED_AGG_URL);
+      if (!response.ok) {
+        return false;
+      }
+      const node = (await response.json()) as {
+        month?: string;
+        updatedAt?: string;
+        names?: Record<string, string>;
+        agg?: AggRecord;
+      } | null;
+      if (!node || node.month !== this.monthKeyNow() || !node.agg) {
+        return false;
+      }
+      this.salesAgg = this.hydrateAgg(node.agg);
+      if (node.names) {
+        for (const [code, name] of Object.entries(node.names)) {
+          if (name && !this.productNames.has(code)) {
+            this.productNames.set(code, name);
+          }
+        }
+      }
+      if (node.updatedAt) {
+        const parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Asia/Ho_Chi_Minh",
+          hour12: false,
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).formatToParts(new Date(node.updatedAt));
+        const part = (type: string) => parts.find((entry) => entry.type === type)?.value || "";
+        this.loadedAtText = `${part("hour")}:${part("minute")} ${part("day")}/${part("month")}/${part("year")}`;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Lưu phần tổng hợp (không lưu đơn thô) để lần mở sau hiện ngay. */
+  private saveAggCache(): void {
+    try {
+      const agg: Record<string, Record<string, unknown>> = {};
+      for (const [code, byShop] of this.salesAgg) {
+        const shops: Record<string, unknown> = {};
+        for (const [shop, value] of byShop) {
+          const employees: Record<string, unknown> = {};
+          for (const [name, emp] of value.employees) {
+            employees[name] = { units: Object.fromEntries(emp.units), amount: emp.amount };
+          }
+          shops[shop] = { units: Object.fromEntries(value.units), amount: value.amount, employees };
+        }
+        agg[code] = shops;
+      }
+      const payload = JSON.stringify({ month: this.monthKeyNow(), loadedAtText: this.loadedAtText, names: [...this.productNames], agg });
+      if (payload.length > 1_800_000) {
+        return;
+      }
+      localStorage.setItem(SalesVolumeComponent.AGG_CACHE_KEY, payload);
+    } catch {
+      /* Cache đầy hoặc bị chặn — bỏ qua, trang vẫn tải trực tiếp như cũ. */
+    }
+  }
+
+  /** Mã chưa bán đơn nào sẽ không có tên trong dữ liệu bán hàng — tra bổ sung ở danh mục sản phẩm. */
+  private async fillMissingNames(): Promise<void> {
+    const missing = this.configItems.map((item) => item.code).filter((code) => !this.productNames.has(code));
+    if (!missing.length) {
+      return;
+    }
+    try {
+      const response = await fetch(CATALOG_URL);
+      const data = (await response.json()) as unknown;
+      const wanted = new Set(missing);
+      // Danh mục thật có dạng { count, items: [{ c, n, u }…], updatedAt } —
+      // duyệt đệ quy để lấy tên ở mọi cấp lồng nhau.
+      const visit = (node: unknown, depth: number): void => {
+        if (!node || typeof node !== "object" || depth > 4) {
+          return;
+        }
+        if (Array.isArray(node)) {
+          for (const child of node) {
+            visit(child, depth + 1);
+          }
+          return;
+        }
+        const row = node as RawRecord;
+        const code = normalizeCode(pickField(row, ["c", "code", "ProductID", "ProductCode"]));
+        const name = String(pickField(row, ["n", "name", "ProductName"]) || "").trim();
+        if (code && name && wanted.has(code) && !this.productNames.has(code)) {
+          this.productNames.set(code, name);
+        }
+        for (const value of Object.values(row)) {
+          visit(value, depth + 1);
+        }
+      };
+      visit(data, 0);
+    } catch {
+      // Không tra được tên thì hiển thị mã — không chặn trang.
+    }
+  }
+
+  /** Mở modal chi tiết phép tính của một mã: số bán thô theo từng đơn vị
+   * bán trên hóa đơn, cách quy đổi về đơn vị khoán và phần của từng nhân viên. */
+  openDetail(product: ProductView, onlyShop?: string): void {
+    const item = this.configItems.find((entry) => entry.code === product.code);
+    if (!item) {
+      return;
+    }
+    this.detailItem = item;
+    this.detailProduct = product;
+    const target = (item.unit || "").trim().toLowerCase();
+    const pack = item.packSize && item.packSize > 1 ? item.packSize : 1;
+    const convert = (units: Map<string, number>): { lines: CalcLine[]; total: number } => {
+      const lines: CalcLine[] = [];
+      let total = 0;
+      for (const [unit, raw] of units) {
+        const divided = !!unit && pack > 1 && unit.trim().toLowerCase() !== target;
+        const converted = divided ? raw / pack : raw;
+        lines.push({ unit: unit || "(không ghi đơn vị)", raw, converted, divided });
+        total += converted;
+      }
+      lines.sort((a, b) => b.raw - a.raw);
+      return { lines, total };
+    };
+    const calcs: ShopCalc[] = [];
+    for (const shop of this.shops) {
+      if (onlyShop && shop.ShopCode !== onlyShop) {
+        continue;
+      }
+      const shopAgg = this.salesAgg.get(product.code)?.get(shop.ShopCode);
+      const converted = convert(shopAgg?.units ?? new Map<string, number>());
+      const quota = item.shopQuotas?.[shop.ShopCode] ?? item.quota ?? 0;
+      const employees = shopAgg
+        ? [...shopAgg.employees.entries()]
+            .map(([name, emp]) => {
+              const part = convert(emp.units);
+              return {
+                name,
+                summary: part.lines.map((line) => `${this.fmtQty(line.raw)} ${line.unit}`).join(" + "),
+                qty: part.total,
+                pct: quota > 0 ? (part.total / quota) * 100 : null,
+              };
+            })
+            .filter((entry) => entry.qty > 0)
+            .sort((a, b) => b.qty - a.qty)
+        : [];
+      calcs.push({
+        shopCode: shop.ShopCode,
+        shopName: shop.ShopName,
+        quota,
+        lines: converted.lines,
+        total: converted.total,
+        pct: quota > 0 ? (converted.total / quota) * 100 : null,
+        remaining: Math.max(0, quota - converted.total),
+        over: Math.max(0, converted.total - quota),
+        employees,
+      });
+    }
+    this.detailCalcs = calcs;
+    this.cdr.markForCheck();
+  }
+
+  closeDetail(): void {
+    this.detailProduct = null;
+    this.detailItem = null;
+    this.detailCalcs = [];
+    this.cdr.markForCheck();
+  }
+
+  // ── Dựng view ────────────────────────────────────────────────────────
+
+  /**
+   * Quy đổi số lượng theo từng đơn vị bán trên hóa đơn về đơn vị khoán:
+   * dòng bán đúng đơn vị khoán (hoặc không ghi đơn vị) tính nguyên; dòng bán
+   * lẻ (viên/ống) chia cho packSize. packSize <= 1 thì mọi dòng tính nguyên.
+   */
+  private convertedQty(units: Map<string, number>, item: VolumeProductConfig): number {
+    const target = (item.unit || "").trim().toLowerCase();
+    const pack = item.packSize && item.packSize > 1 ? item.packSize : 1;
+    let total = 0;
+    for (const [unit, qty] of units) {
+      if (!unit || pack <= 1 || unit.trim().toLowerCase() === target) {
+        total += qty;
+      } else {
+        total += qty / pack;
+      }
+    }
+    return total;
+  }
+
+  rebuildView(): void {
+    const search = this.searchText.trim().toLowerCase();
+    if (!this.employeeShop || !this.shops.some((shop) => shop.ShopCode === this.employeeShop)) {
+      this.employeeShop = this.shops[0]?.ShopCode || "";
+    }
+    const views: ProductView[] = [];
+    for (const item of this.configItems) {
+      const byShop = this.salesAgg.get(item.code);
+      const shopViews: ShopView[] = [];
+      for (const shop of this.shops) {
+        const quota = item.shopQuotas?.[shop.ShopCode] ?? item.quota ?? 0;
+        const shopAgg = byShop?.get(shop.ShopCode);
+        const qty = shopAgg ? this.convertedQty(shopAgg.units, item) : 0;
+        const employees: EmpView[] = [...(shopAgg?.employees.entries() || [])]
+          .map(([name, emp]) => {
+            const empQty = this.convertedQty(emp.units, item);
+            return {
+              name,
+              qty: empQty,
+              amount: emp.amount,
+              pctQuota: quota > 0 ? (empQty / quota) * 100 : null,
+              share: qty > 0 ? (empQty / qty) * 100 : 0,
+            };
+          })
+          .sort((a, b) => b.qty - a.qty);
+        shopViews.push({
+          shopCode: shop.ShopCode,
+          shopName: shop.ShopName,
+          qty,
+          amount: shopAgg?.amount || 0,
+          quota,
+          pct: quota > 0 ? (qty / quota) * 100 : null,
+          remaining: Math.max(0, quota - qty),
+          over: Math.max(0, qty - quota),
+          employees,
+        });
+      }
+      const totalQty = shopViews.reduce((sum, s) => sum + s.qty, 0);
+      const totalAmount = shopViews.reduce((sum, s) => sum + s.amount, 0);
+      const totalQuota = shopViews.reduce((sum, s) => sum + s.quota, 0);
+      const status: ProductView["status"] = totalQuota <= 0 ? "noquota" : totalQty >= totalQuota ? "done" : "open";
+      views.push({
+        code: item.code,
+        name: this.productNames.get(item.code) || "",
+        unit: item.unit || "",
+        totalQty,
+        totalAmount,
+        totalQuota,
+        pct: totalQuota > 0 ? (totalQty / totalQuota) * 100 : null,
+        remaining: Math.max(0, totalQuota - totalQty),
+        over: Math.max(0, totalQty - totalQuota),
+        status,
+        shops: shopViews,
+      });
+    }
+    const statusRank = { open: 0, noquota: 1, done: 2 } as const;
+    views.sort((a, b) => statusRank[a.status] - statusRank[b.status] || (a.pct ?? 0) - (b.pct ?? 0) || b.remaining - a.remaining);
+    this.stats = {
+      tracked: views.length,
+      done: views.filter((v) => v.status === "done").length,
+      totalQty: views.reduce((sum, v) => sum + v.totalQty, 0),
+      totalQuota: views.reduce((sum, v) => sum + v.totalQuota, 0),
+      totalRemaining: views.reduce((sum, v) => sum + v.remaining, 0),
+    };
+    const statusWanted = this.statusFilter;
+    const matchesCommon = (view: ProductView): boolean => {
+      if (search && !view.code.toLowerCase().includes(search) && !view.name.toLowerCase().includes(search)) return false;
+      return true;
+    };
+    this.products = views.filter((view) => {
+      if (statusWanted === "OPEN" && view.status !== "open") return false;
+      if (statusWanted === "DONE" && view.status !== "done") return false;
+      if (statusWanted === "NOQUOTA" && view.status !== "noquota") return false;
+      return matchesCommon(view);
+    });
+
+    // Tab Nhân viên: nhân viên của shop đang chọn, tổng hợp từ mọi mã theo dõi.
+    const totals = new Map<string, number>();
+    for (const view of views) {
+      const cell = view.shops.find((shop) => shop.shopCode === this.employeeShop);
+      for (const emp of cell?.employees || []) {
+        totals.set(emp.name, (totals.get(emp.name) || 0) + emp.qty);
+      }
+    }
+    this.employeeNames = [...totals.entries()]
+      .filter(([, total]) => total > 0)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "vi"))
+      .map(([name]) => name);
+    const shopStatus = (cell: ShopView): ProductView["status"] => (cell.quota <= 0 ? "noquota" : cell.qty >= cell.quota ? "done" : "open");
+    const rows: EmployeeRow[] = [];
+    for (const view of views) {
+      const cell = view.shops.find((shop) => shop.shopCode === this.employeeShop);
+      if (!cell) {
+        continue;
+      }
+      const status = shopStatus(cell);
+      if (statusWanted === "OPEN" && status !== "open") continue;
+      if (statusWanted === "DONE" && status !== "done") continue;
+      if (statusWanted === "NOQUOTA" && status !== "noquota") continue;
+      if (!matchesCommon(view)) {
+        continue;
+      }
+      const byName = new Map(cell.employees.map((emp) => [emp.name, emp]));
+      rows.push({
+        product: view,
+        shop: cell,
+        cells: this.employeeNames.map((name) => {
+          const emp = byName.get(name);
+          return { qty: emp?.qty || 0, pctQuota: emp ? emp.pctQuota : cell.quota > 0 ? 0 : null };
+        }),
+      });
+    }
+    rows.sort(
+      (a, b) =>
+        statusRank[shopStatus(a.shop)] - statusRank[shopStatus(b.shop)] ||
+        (a.shop.pct ?? 0) - (b.shop.pct ?? 0) ||
+        b.shop.remaining - a.shop.remaining,
+    );
+    this.employeeRows = rows;
+    this.cdr.markForCheck();
+  }
+
+  setTab(tab: "shops" | "employees" | "form"): void {
+    this.activeTab = tab;
+    if (tab === "form") {
+      this.openDraft();
+    }
+    this.cdr.markForCheck();
+  }
+
+  setEmployeeShop(shopCode: string): void {
+    this.employeeShop = shopCode;
+    this.rebuildView();
+  }
+
+  /** Tên nhà thuốc rút gọn: bỏ phần địa chỉ sau dấu gạch ngang đầu tiên. */
+  shortShopName(shopName: string): string {
+    return (shopName || "").split(/\s+[-–]\s+/)[0].trim();
+  }
+
+  /** Nhãn ngắn kiểu NT25 / NT97 / NT144 như trong file Excel theo dõi khoán. */
+  shopLabel(shopCode: string): string {
+    const digits = shopCode.replace(/\D/g, "");
+    return digits ? `NT${parseInt(digits, 10)}` : shopCode;
+  }
+
+  // ── Định dạng ────────────────────────────────────────────────────────
+
+  fmtQty(value: number): string {
+    const rounded = Math.round(value * 10) / 10;
+    return Number.isInteger(rounded) ? rounded.toLocaleString("vi-VN") : rounded.toLocaleString("vi-VN", { maximumFractionDigits: 1 });
+  }
+
+  fmtPct(value: number | null): string {
+    if (value === null || !Number.isFinite(value)) {
+      return "—";
+    }
+    const rounded = Math.round(value * 10) / 10;
+    return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`;
+  }
+
+  fmtMoney(value: number): string {
+    if (!value) {
+      return "0đ";
+    }
+    if (Math.abs(value) >= 1_000_000) {
+      const tr = Math.round((value / 1_000_000) * 10) / 10;
+      return `${tr.toLocaleString("vi-VN", { maximumFractionDigits: 1 })} tr`;
+    }
+    return `${Math.round(value).toLocaleString("vi-VN")}đ`;
+  }
+
+  barWidth(pct: number | null): number {
+    if (pct === null) {
+      return 0;
+    }
+    return Math.max(0, Math.min(100, pct));
+  }
+}

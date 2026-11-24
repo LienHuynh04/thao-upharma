@@ -245,6 +245,7 @@ export class SidebarComponent implements OnInit {
     { label: 'Khách Hàng', icon: '👤', route: '/khach-hang' },
     { label: 'Nhập Doanh Số', icon: '➕', route: '/nhap-doanh-so' },
     { label: 'Hàng Hoá', icon: '📦', route: '/hang-hoa' },
+    { label: 'Hàng Sản Lượng', icon: '🏭', route: '/hang-san-luong' },
     { label: 'Wrong FEFO', icon: '⚠️', route: '/wrong-fefo' },
     { label: 'Hàng Không Có', icon: '🛒', route: '/hang-khong-co' },
     { label: 'Đánh Giá AI', icon: '✨', route: '/danh-gia-ai' },

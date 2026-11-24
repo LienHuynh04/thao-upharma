@@ -408,6 +408,102 @@ function sanitizePIIDeep(value) {
   return value;
 }
 
+// ── VOLUME SALES AGG START ──
+// Pre-aggregate month-to-date sales rows into ONE Firebase node
+// (hidden_products/volume_sales_agg) so the sales-volume page loads a single
+// small JSON instead of one sales_report file per shop. The shape mirrors the
+// page's own aggregate cache: { month, updatedAt, names, agg } with
+// agg[code][shop] = { units: { unit: qty }, amount, employees: { name: { units, amount } } }.
+// Field fallbacks and unit bucketing mirror the page exactly, so converting
+// units against quotas on the page gives identical results.
+function volumeAggPickField(row, keys) {
+  for (const key of keys) {
+    const value = row ? row[key] : undefined;
+    if (value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function volumeAggParseNumber(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  const text = String(value).trim();
+  if (!text) {
+    return 0;
+  }
+  const normalized = text
+    .replace(/\s+/g, "")
+    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function buildVolumeSalesAgg(shopRowsList, monthKey, updatedAt) {
+  const agg = {};
+  const names = {};
+  let totalRows = 0;
+  for (const entry of shopRowsList) {
+    const shopCode = entry ? entry.shopCode : "";
+    const rows = entry ? entry.rows : null;
+    if (!shopCode || !Array.isArray(rows)) {
+      continue;
+    }
+    for (const row of rows) {
+      if (!row || typeof row !== "object") {
+        continue;
+      }
+      const code = String(
+        volumeAggPickField(row, ["ProductID", "ProductCode", "Product_ID", "MaSP", "ItemCode", "Code"]) ?? "",
+      )
+        .trim()
+        .toUpperCase();
+      if (!code) {
+        continue;
+      }
+      totalRows++;
+      const name = String(volumeAggPickField(row, ["ProductName", "Product_Name", "TenSP", "Name"]) || "").trim();
+      if (name && !names[code]) {
+        names[code] = name;
+      }
+      const qty = volumeAggParseNumber(volumeAggPickField(row, ["Quantity", "Qty", "SL", "SoLuong", "AmountQty"]) || 0);
+      const unitLabel = String(volumeAggPickField(row, ["UnitOfMeasure", "Unit", "DonViTinh", "UnitName"]) || "").trim();
+      const amount = volumeAggParseNumber(
+        volumeAggPickField(row, ["AmountIncludingVAT", "AmountIncludingAdjust", "Amount", "TotalAmount", "ThanhTien"]) || 0,
+      );
+      const seller =
+        String(
+          volumeAggPickField(row, [
+            "SalesName",
+            "EmployeeName",
+            "StaffName",
+            "SalesStaffName",
+            "UserName",
+            "FullName",
+            "Employee",
+            "EmpName",
+            "SellerName",
+          ]) || "",
+        ).trim() || "Không rõ người bán";
+      const byShop = agg[code] || (agg[code] = {});
+      const shopAgg = byShop[shopCode] || (byShop[shopCode] = { units: {}, amount: 0, employees: {} });
+      shopAgg.units[unitLabel] = (shopAgg.units[unitLabel] || 0) + qty;
+      shopAgg.amount += amount;
+      const emp = shopAgg.employees[seller] || (shopAgg.employees[seller] = { units: {}, amount: 0 });
+      emp.units[unitLabel] = (emp.units[unitLabel] || 0) + qty;
+      emp.amount += amount;
+    }
+  }
+  return { month: monthKey, updatedAt, names, agg, totalRows };
+}
+// ── VOLUME SALES AGG END ──
+
 async function run() {
   if (!UPHARMA_USERNAME || !UPHARMA_PASSWORD) {
     console.error("Thiếu UPHARMA_USERNAME hoặc UPHARMA_PASSWORD");
@@ -677,6 +773,41 @@ async function run() {
 
     for (const result of shopResults) {
       data.push(...result.mappedArray);
+    }
+
+    // Sales-volume page: pre-aggregate this month's sales of every shop into ONE
+    // node so the page downloads a single small JSON instead of 21 sales files.
+    // Only written on a complete sync; an incomplete run keeps the previous agg.
+    if (resourceName === 'sales_report' && db) {
+      if (failedShops.length > 0) {
+        console.warn('[volume_sales_agg] Bỏ qua: đồng bộ sales_report chưa đầy đủ, giữ bản tính sẵn cũ.');
+      } else {
+        try {
+          const vnNow = getVietnamTimeComponents(new Date());
+          const monthKey = `${vnNow.year}-${vnNow.month + 1}`;
+          const built = buildVolumeSalesAgg(
+            shopResults.map((result) => ({
+              shopCode: result.shop.ShopCode,
+              rows: result.payloadData !== undefined ? result.payloadData : result.mappedArray,
+            })),
+            monthKey,
+            new Date().toISOString(),
+          );
+          if (built.totalRows > 0) {
+            const payload = { month: built.month, updatedAt: built.updatedAt, names: built.names, agg: built.agg };
+            await db.ref('hidden_products/volume_sales_agg').set(payload);
+            console.log(
+              `[volume_sales_agg] ✅ Đã tính sẵn ${built.totalRows} dòng bán hàng (${Object.keys(payload.agg).length} mã) cho tháng ${monthKey}.`,
+            );
+          } else {
+            console.warn('[volume_sales_agg] Bỏ qua: không có dòng bán hàng nào, giữ bản tính sẵn cũ.');
+          }
+        } catch (aggError) {
+          console.warn(
+            `[volume_sales_agg] Lỗi tính sẵn (bỏ qua, trang sẽ tự tải từng shop): ${aggError instanceof Error ? aggError.message : String(aggError)}`,
+          );
+        }
+      }
     }
 
     if (failedShops.length > 0) {

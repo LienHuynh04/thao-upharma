@@ -50,6 +50,12 @@ interface ShopAgg {
   employees: Map<string, EmpAgg>;
 }
 
+/** Dạng JSON của một bản tổng hợp (cache trang / node tính sẵn trên Firebase). */
+type AggRecord = Record<
+  string,
+  Record<string, { units: Record<string, number>; amount: number; employees: Record<string, { units: Record<string, number>; amount: number }> }>
+>;
+
 interface CalcLine {
   unit: string;
   raw: number;
@@ -129,6 +135,7 @@ type RawRecord = Record<string, unknown>;
 
 const CONFIG_URL = "https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app/hidden_products/volume_products.json";
 const CATALOG_URL = "https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app/product_catalog.json";
+const PRECOMPUTED_AGG_URL = "https://thao-uph-default-rtdb.asia-southeast1.firebasedatabase.app/hidden_products/volume_sales_agg.json";
 
 function normalizeCode(value: unknown): string {
   return String(value ?? "").trim().toUpperCase();
@@ -987,6 +994,15 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
     try {
       const session = this.upharmaService.ensureLogin();
+      // Ưu tiên bản tổng hợp tính sẵn (1 file duy nhất cho mọi nhà thuốc);
+      // chưa có hoặc khác tháng thì tải sales_report từng shop như cũ.
+      if (await this.fetchPrecomputedAgg()) {
+        this.failedShops = [];
+        await this.fillMissingNames();
+        this.rebuildView();
+        this.saveAggCache();
+        return;
+      }
       // Tổng hợp mọi mã (không lọc theo cấu hình) để khi sửa thiết lập thêm mã
       // mới, số liệu có sẵn ngay mà không phải tải lại dữ liệu bán hàng.
       const agg = new Map<string, Map<string, ShopAgg>>();
@@ -1084,22 +1100,74 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
       if (!cache || cache.month !== this.monthKeyNow() || !cache.agg) {
         return false;
       }
-      const agg = new Map<string, Map<string, ShopAgg>>();
-      for (const [code, byShop] of Object.entries(cache.agg)) {
-        const shopMap = new Map<string, ShopAgg>();
-        for (const [shop, value] of Object.entries(byShop)) {
-          const employees = new Map<string, EmpAgg>();
-          for (const [name, emp] of Object.entries(value.employees || {})) {
-            employees.set(name, { units: new Map(Object.entries(emp.units || {})), amount: emp.amount || 0 });
-          }
-          shopMap.set(shop, { units: new Map(Object.entries(value.units || {})), amount: value.amount || 0, employees });
-        }
-        agg.set(code, shopMap);
-      }
-      this.salesAgg = agg;
+      this.salesAgg = this.hydrateAgg(cache.agg);
       this.productNames = new Map(cache.names || []);
       if (cache.loadedAtText) {
         this.loadedAtText = cache.loadedAtText;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Dựng lại cấu trúc Map tổng hợp từ bản JSON (cache hoặc node tính sẵn). */
+  private hydrateAgg(aggRecord: AggRecord): Map<string, Map<string, ShopAgg>> {
+    const agg = new Map<string, Map<string, ShopAgg>>();
+    for (const [code, byShop] of Object.entries(aggRecord)) {
+      const shopMap = new Map<string, ShopAgg>();
+      for (const [shop, value] of Object.entries(byShop)) {
+        const employees = new Map<string, EmpAgg>();
+        for (const [name, emp] of Object.entries(value.employees || {})) {
+          employees.set(name, { units: new Map(Object.entries(emp.units || {})), amount: emp.amount || 0 });
+        }
+        shopMap.set(shop, { units: new Map(Object.entries(value.units || {})), amount: value.amount || 0, employees });
+      }
+      agg.set(code, shopMap);
+    }
+    return agg;
+  }
+
+  /**
+   * Đọc bản tổng hợp đã tính sẵn trên Firebase (script đồng bộ ghi mỗi 30 phút vào
+   * hidden_products/volume_sales_agg). Trả về true nếu dùng được — khi đó trang
+   * không phải tải sales_report của từng nhà thuốc nữa.
+   */
+  private async fetchPrecomputedAgg(): Promise<boolean> {
+    try {
+      const response = await fetch(PRECOMPUTED_AGG_URL);
+      if (!response.ok) {
+        return false;
+      }
+      const node = (await response.json()) as {
+        month?: string;
+        updatedAt?: string;
+        names?: Record<string, string>;
+        agg?: AggRecord;
+      } | null;
+      if (!node || node.month !== this.monthKeyNow() || !node.agg) {
+        return false;
+      }
+      this.salesAgg = this.hydrateAgg(node.agg);
+      if (node.names) {
+        for (const [code, name] of Object.entries(node.names)) {
+          if (name && !this.productNames.has(code)) {
+            this.productNames.set(code, name);
+          }
+        }
+      }
+      if (node.updatedAt) {
+        const parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Asia/Ho_Chi_Minh",
+          hour12: false,
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).formatToParts(new Date(node.updatedAt));
+        const part = (type: string) => parts.find((entry) => entry.type === type)?.value || "";
+        this.loadedAtText = `${part("hour")}:${part("minute")} ${part("day")}/${part("month")}/${part("year")}`;
       }
       return true;
     } catch {

@@ -447,6 +447,17 @@ function extractRows(response: unknown): RawRecord[] {
               <span class="text-secondary small">Khoán tháng hiện tại = phân bổ 2 tháng của từng shop ÷ 2 (làm tròn) — đúng cách file chia theo từng tháng. Quy đổi lấy từ sheet tARGET trong file nếu có. Nhập xong kiểm tra rồi bấm "Lưu thiết lập" để áp dụng.</span>
             </div>
           </div>
+          <div
+            *ngIf="importStatus"
+            class="alert py-2 mb-3"
+            [ngClass]="importStatus.kind === 'ok' ? 'alert-success' : importStatus.kind === 'error' ? 'alert-danger' : 'alert-info'"
+            role="alert"
+          >
+            <span *ngIf="importStatus.kind === 'busy'" class="spinner-border spinner-border-sm me-2"></span>
+            <span *ngIf="importStatus.kind === 'ok'" class="me-1">✅</span>
+            <span *ngIf="importStatus.kind === 'error'" class="me-1">⚠️</span>
+            {{ importStatus.text }}
+          </div>
           <div class="row g-2 align-items-end mb-3">
             <div class="col-md-7">
               <label class="form-label">Thêm mã sản phẩm (mỗi mã một dòng, hoặc cách nhau bằng dấu phẩy)</label>
@@ -718,6 +729,7 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
   newCodesText = "";
   newQuotaDefault: number | null = null;
   draftFeedback = "";
+  importStatus: { kind: "busy" | "ok" | "error"; text: string } | null = null;
   savingConfig = false;
   configSavedText = "";
 
@@ -864,6 +876,8 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
     if (!file) {
       return;
     }
+    this.importStatus = { kind: "busy", text: `Đang đọc file "${file.name}"…` };
+    this.cdr.markForCheck();
     try {
       const xlsx = await import("xlsx");
       const workbook = xlsx.read(await file.arrayBuffer(), { type: "array" });
@@ -876,8 +890,10 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
       }
       const parsed = parseAllocationWorkbook(xlsx, workbook, currentPackSizes);
       if (!parsed || !parsed.items.length) {
-        this.draftFeedback =
-          "Không đọc được file: cần một sheet có cột \"Mã SP\", \"ĐVT target\" và các cột NT… như file phân bổ sản lượng.";
+        this.importStatus = {
+          kind: "error",
+          text: `Không đọc được file "${file.name}": cần một sheet có cột "Mã SP", "ĐVT target" và các cột NT… như file phân bổ sản lượng.`,
+        };
         this.cdr.markForCheck();
         return;
       }
@@ -915,14 +931,17 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
       }
       const fileShops = new Set(parsed.shopCodes);
       const missing = this.shops.filter((shop) => !fileShops.has(shop.ShopCode)).map((shop) => shop.ShopCode);
-      this.draftFeedback =
-        `Đã nhập ${parsed.items.length} mã từ file (${added} mã mới, ${updated} mã cập nhật). ` +
-        `Khoán ${this.monthLabel.toLowerCase()} = phân bổ 2 tháng ÷ 2 (làm tròn).` +
-        (missing.length ? ` Shop không có trong file phân bổ: ${missing.join(", ")} — không đặt khoán.` : "") +
-        " Kiểm tra rồi bấm \"Lưu thiết lập\" để áp dụng.";
+      this.importStatus = {
+        kind: "ok",
+        text:
+          `Đã nhập xong file "${file.name}": ${parsed.items.length} mã (${added} mã mới, ${updated} mã cập nhật). ` +
+          `Khoán ${this.monthLabel.toLowerCase()} = phân bổ 2 tháng ÷ 2 (làm tròn), đã điền vào bảng bên dưới.` +
+          (missing.length ? ` Shop không có trong file phân bổ: ${missing.join(", ")} — không đặt khoán.` : "") +
+          " Kiểm tra rồi bấm \"Lưu thiết lập\" để áp dụng.",
+      };
       this.cdr.markForCheck();
     } catch {
-      this.draftFeedback = "Đọc file Excel thất bại — kiểm tra lại định dạng file (.xlsx).";
+      this.importStatus = { kind: "error", text: `Đọc file "${file.name}" thất bại — kiểm tra lại định dạng file (.xlsx).` };
       this.cdr.markForCheck();
     }
   }
@@ -962,6 +981,7 @@ export class SalesVolumeComponent implements OnInit, OnDestroy {
       this.configItems = items;
       const now = new Date();
       this.configSavedText = `Đã lưu thiết lập lúc ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}.`;
+      this.importStatus = null;
       this.rebuildView();
       // Mã mới thêm mà chưa từng bán sẽ chưa có tên — tra bổ sung ở danh mục rồi dựng lại bảng.
       void this.fillMissingNames().then(() => this.rebuildView());

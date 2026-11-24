@@ -826,6 +826,7 @@ renderDashboard(); renderInventory(); renderNearExpiryOrders(); renderTabs(); re
     else if (url.includes('/chi-tieu')) this.currentPageTitle = 'Chỉ Tiêu';
     else if (url.includes('/hieu-suat')) this.currentPageTitle = 'Hiệu Suất';
     else if (url.includes('/khach-hang')) this.currentPageTitle = 'Khách Hàng';
+    else if (url.includes('/hang-san-luong')) this.currentPageTitle = 'Hàng Sản Lượng';
     else if (url.includes('/hang-hoa')) this.currentPageTitle = 'Hàng Hoá';
     else if (url.includes('/wrong-fefo')) this.currentPageTitle = 'Wrong FEFO';
     else if (url.includes('/hang-khong-co')) this.currentPageTitle = 'Hàng Không Có';
